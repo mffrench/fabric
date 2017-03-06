@@ -92,7 +92,7 @@ def getPortHostMapping(compose_container_data, compose_service_name, port, proto
     container = containerDataFromNamePart(compose_service_name, compose_container_data)
     if container:
         port_protocol = '%s/%s' % (port, protocol)
-        if port_protocol in container.ports:
+        if container.ports is not None and port_protocol in container.ports:
             port_mapping = container.ports[port_protocol]
             host_ip = port_mapping[0]['HostIp']
             host_port = int(port_mapping[0]['HostPort'])

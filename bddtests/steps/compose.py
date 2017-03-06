@@ -106,7 +106,10 @@ class Composition:
 
     def _collectServiceNames(self):
         'First collect the services names.'
-        servicesList = [service for service in self.issueCommand(["config", "--services"]).splitlines() if "WARNING" not in service]
+        try:
+            servicesList = [service for service in self.issueCommand(["config", "--services"]).splitlines() if "WARNING" not in service]
+        except TypeError:
+            servicesList = [service for service in self.issueCommand(["config", "--services"]).splitlines() if b"WARNING" not in service]
         return servicesList
 
     def up(self, context, force_recreate=True, components=[]):
@@ -151,8 +154,12 @@ class Composition:
 
     def getEnv(self):
         myEnv = os.environ.copy()
-        for key,value in self.getEnvAdditions().iteritems():
-            myEnv[key] = value
+        try:
+            for key,value in self.getEnvAdditions().iteritems():
+                myEnv[key] = value
+        except AttributeError:
+            for key,value in self.getEnvAdditions().items():
+                myEnv[key] = value
         # myEnv["COMPOSE_PROJECT_NAME"] = self.projectName
         # myEnv["CORE_PEER_NETWORKID"] = self.projectName
         # # Invoke callbacks
@@ -202,7 +209,11 @@ class Composition:
         for containerID in self.refreshContainerIDs():
 
             # get container metadata
-            container = json.loads(bdd_test_util.cli_call(["docker", "inspect", containerID], expect_success=True)[0])[0]
+            container_meta_data = bdd_test_util.cli_call(["docker", "inspect", containerID], expect_success=True)[0]
+            if isinstance(container_meta_data, str):
+                container = json.loads(container_meta_data)[0]
+            else:
+                container = json.loads(container_meta_data.decode())[0]
 
             # container name
             container_name = container['Name'][1:]
@@ -213,7 +224,10 @@ class Composition:
                 container_ipaddress = container['NetworkSettings']['IPAddress']
                 if not container_ipaddress:
                     # ipaddress not found at the old location, try the new location
-                    container_ipaddress = container['NetworkSettings']['Networks'].values()[0]['IPAddress']
+                    try:
+                        container_ipaddress = container['NetworkSettings']['Networks'].values()[0]['IPAddress']
+                    except TypeError:
+                        container_ipaddress = list(container['NetworkSettings']['Networks'].values())[0]['IPAddress']
 
             # container environment
             container_env = container['Config']['Env']

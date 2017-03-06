@@ -418,13 +418,27 @@ class BootstrapHelper:
     def makeChainHeader(self, type, txID="", extension='',
                         version=1,
                         timestamp=timestamp_pb2.Timestamp(seconds=int(time.time()), nanos=0)):
-        return common_dot_common_pb2.ChannelHeader(type=type,
-                                                 version=version,
-                                                 timestamp=timestamp,
-                                                 channel_id=self.chainId,
-                                                 epoch=self.epoch,
-                                                 tx_id=txID,
-                                                 extension=extension)
+        try:
+            ret = common_dot_common_pb2.ChannelHeader(type=type,
+                                                      version=version,
+                                                      timestamp=timestamp,
+                                                      channel_id=self.chainId,
+                                                      epoch=self.epoch,
+                                                      tx_id=txID,
+                                                      extension=extension)
+        except TypeError as e:
+            if extension == '':
+                ret = common_dot_common_pb2.ChannelHeader(type=type,
+                                                          version=version,
+                                                          timestamp=timestamp,
+                                                          channel_id=self.chainId,
+                                                          epoch=self.epoch,
+                                                          tx_id=txID,
+                                                          extension=b'')
+            else:
+                raise e
+
+        return ret
 
     def makeSignatureHeader(self, serializeCertChain, nonce):
         return common_dot_common_pb2.SignatureHeader(creator=serializeCertChain,
@@ -702,9 +716,14 @@ def createChannelConfigGroup(directory, hashingAlgoName="SHA256", consensusType=
         rule=ruleMajority, sub_policy=BootstrapHelper.KEY_POLICY_ADMINS).SerializeToString()))
     #New OrdererAddress
     ordererAddress = common_dot_configuration_pb2.OrdererAddresses()
-    for ordererNodeTuple, cert in [(user_node_tuple, cert) for user_node_tuple, cert in directory.ordererAdminTuples.iteritems() if
-                      "orderer" in user_node_tuple.user and "signer" in user_node_tuple.user.lower()]:
-        ordererAddress.addresses.append("{0}:7050".format(ordererNodeTuple.nodeName))
+    try:
+        for ordererNodeTuple, cert in [(user_node_tuple, cert) for user_node_tuple, cert in directory.ordererAdminTuples.iteritems() if
+                          "orderer" in user_node_tuple.user and "signer" in user_node_tuple.user.lower()]:
+            ordererAddress.addresses.append("{0}:7050".format(ordererNodeTuple.nodeName))
+    except AttributeError:
+        for ordererNodeTuple, cert in [(user_node_tuple, cert) for user_node_tuple, cert in directory.ordererAdminTuples.items() if
+                                       "orderer" in user_node_tuple.user and "signer" in user_node_tuple.user.lower()]:
+            ordererAddress.addresses.append("{0}:7050".format(ordererNodeTuple.nodeName))
     assert len(ordererAddress.addresses) > 0, "No orderer nodes were found while trying to create channel ConfigGroup"
     channel.values[BootstrapHelper.KEY_ORDERER_ADDRESSES].value = toValue(ordererAddress)
     return channel
@@ -763,19 +782,32 @@ def createNewConfigUpdateEnvelope(channelConfig, chainId):
 
 
 def mergeConfigGroups(configGroupTarget, configGroupSource):
-    for k, v in configGroupSource.groups.iteritems():
-        if k in configGroupTarget.groups.keys():
-            mergeConfigGroups(configGroupTarget.groups[k], configGroupSource.groups[k])
-        else:
-            configGroupTarget.groups[k].MergeFrom(v)
-    for k, v in configGroupSource.policies.iteritems():
-        if k in configGroupTarget.policies.keys():
-            mergeConfigGroups(configGroupTarget.policies[k], configGroupSource.policies[k])
-        else:
-            configGroupTarget.policies[k].MergeFrom(v)
-    for k, v in configGroupSource.values.iteritems():
-        assert not k in configGroupTarget.values.keys(), "Value already exists in target config group: {0}".format(k)
-        configGroupTarget.values[k].CopyFrom(v)
+    try:
+        for k, v in configGroupSource.groups.iteritems():
+            if k in configGroupTarget.groups.keys():
+                mergeConfigGroups(configGroupTarget.groups[k], configGroupSource.groups[k])
+            else:
+                configGroupTarget.groups[k].MergeFrom(v)
+        for k, v in configGroupSource.policies.iteritems():
+            if k in configGroupTarget.policies.keys():
+                mergeConfigGroups(configGroupTarget.policies[k], configGroupSource.policies[k])
+            else:
+                configGroupTarget.policies[k].MergeFrom(v)
+        for k, v in configGroupSource.values.iteritems():
+            assert not k in configGroupTarget.values.keys(), "Value already exists in target config group: {0}".format(k)
+            configGroupTarget.values[k].CopyFrom(v)
+    except AttributeError:
+        for k, v in configGroupSource.groups.items():
+            if k in configGroupTarget.groups.keys():
+                mergeConfigGroups(configGroupTarget.groups[k], configGroupSource.groups[k])
+        for k, v in configGroupSource.policies.items():
+            if k in configGroupTarget.policies.keys():
+                mergeConfigGroups(configGroupTarget.policies[k], configGroupSource.policies[k])
+            else:
+                configGroupTarget.policies[k].MergeFrom(v)
+        for k, v in configGroupSource.values.items():
+            assert not k in configGroupTarget.values.keys(), "Value already exists in target config group: {0}".format(k)
+            configGroupTarget.values[k].CopyFrom(v)
 
 
 def createGenesisBlock(context, chainId, consensusType, signedConfigItems=[]):
@@ -807,6 +839,17 @@ def createGenesisBlock(context, chainId, consensusType, signedConfigItems=[]):
     ordererConfigMetadata = ""
     transactionFilterMetadata = ""
     bootstrapHelper = BootstrapHelper(chainId="NOT_USED")
+    try:
+        metadata = common_dot_common_pb2.BlockMetadata(
+            metadata=[signaturesMetadata, lastConfigurationBlockMetadata, transactionFilterMetadata,
+                      ordererConfigMetadata])
+    except TypeError:
+        signaturesMetadata = b""
+        transactionFilterMetadata = b""
+        ordererConfigMetadata = b""
+        metadata = common_dot_common_pb2.BlockMetadata(
+            metadata=[signaturesMetadata, lastConfigurationBlockMetadata, transactionFilterMetadata,
+                      ordererConfigMetadata])
     block = common_dot_common_pb2.Block(
         header=common_dot_common_pb2.BlockHeader(
             number=0,
@@ -814,9 +857,7 @@ def createGenesisBlock(context, chainId, consensusType, signedConfigItems=[]):
             data_hash=bootstrapHelper.computeBlockDataHash(blockData),
         ),
         data=blockData,
-        metadata=common_dot_common_pb2.BlockMetadata(
-            metadata=[signaturesMetadata, lastConfigurationBlockMetadata, transactionFilterMetadata,
-                      ordererConfigMetadata]),
+        metadata=metadata,
     )
 
     # Add this back once crypto certs are required
@@ -858,28 +899,52 @@ class CallbackHelper:
         os.makedirs("{0}/{1}".format(localMspConfigPath, "keystore"))
         # Loop through directory and place Organization Certs into cacerts folder
         for targetOrg in [org for orgName, org in directory.organizations.items() if network in org.networks]:
-            with open("{0}/cacerts/{1}.pem".format(localMspConfigPath, targetOrg.name), "w") as f:
-                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, targetOrg.getSelfSignedCert()))
+            certificate = crypto.dump_certificate(crypto.FILETYPE_PEM, targetOrg.getSelfSignedCert())
+            if isinstance(certificate, str):
+                with open("{0}/cacerts/{1}.pem".format(localMspConfigPath, targetOrg.name), "w") as f:
+                    f.write(certificate)
+            else:
+                with open("{0}/cacerts/{1}.pem".format(localMspConfigPath, targetOrg.name), "wb") as f:
+                    f.write(certificate)
 
         # Loop through directory and place Organization Certs into admincerts folder
         # TODO: revisit this, ASO recommended for now
         for targetOrg in [org for orgName, org in directory.organizations.items() if network in org.networks]:
-            with open("{0}/admincerts/{1}.pem".format(localMspConfigPath, targetOrg.name), "w") as f:
-                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, targetOrg.getSelfSignedCert()))
+            certificate = crypto.dump_certificate(crypto.FILETYPE_PEM, targetOrg.getSelfSignedCert())
+            if isinstance(certificate, str):
+                with open("{0}/admincerts/{1}.pem".format(localMspConfigPath, targetOrg.name), "w") as f:
+                    f.write(certificate)
+            else:
+                with open("{0}/admincerts/{1}.pem".format(localMspConfigPath, targetOrg.name), "wb") as f:
+                    f.write(certificate)
 
         # Find the peer signer Tuple for this peer and add to signcerts folder
+        compose_service_str = compose_service if isinstance(compose_service, str) else compose_service.decode()
         for pnt, cert in [(peerNodeTuple, cert) for peerNodeTuple, cert in directory.ordererAdminTuples.items() if
-                          compose_service in peerNodeTuple.user and "signer" in peerNodeTuple.user.lower()]:
+                          compose_service_str in peerNodeTuple.user and "signer" in peerNodeTuple.user.lower()]:
             # Put the PEM file in the signcerts folder
-            with open("{0}/signcerts/{1}.pem".format(localMspConfigPath, pnt.user), "w") as f:
-                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+            certificate = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
+            if isinstance(certificate, str):
+                with open("{0}/signcerts/{1}.pem".format(localMspConfigPath, pnt.user), "w") as f:
+                    f.write(certificate)
+            else:
+                with open("{0}/signcerts/{1}.pem".format(localMspConfigPath, pnt.user), "wb") as f:
+                    f.write(certificate)
             # Put the associated private key into the keystore folder
             user = directory.getUser(pnt.user, shouldCreate=False)
-            with open("{0}/keystore/{1}.pem".format(localMspConfigPath, pnt.user), "w") as f:
-                f.write(user.ecdsaSigningKey.to_pem())
+            user_pem = user.ecdsaSigningKey.to_pem()
+            if isinstance(user_pem, str):
+                with open("{0}/keystore/{1}.pem".format(localMspConfigPath, pnt.user), "w") as f:
+                    f.write(user_pem)
+            else:
+                with open("{0}/keystore/{1}.pem".format(localMspConfigPath, pnt.user), "wb") as f:
+                    f.write(user_pem)
 
     def _getMspId(self, compose_service, directory):
-        matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service in nat.user) and ("Signer" in nat.user) and ((compose_service in nat.nodeName)))]
+        try:
+            matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service in nat.user) and ("Signer" in nat.user) and ((compose_service in nat.nodeName)))]
+        except TypeError:
+            matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service.decode() in nat.user) and ("Signer" in nat.user) and ((compose_service.decode() in nat.nodeName)))]
         assert len(matchingNATs)==1, "Unexpected number of matching NodeAdminTuples: {0}".format(matchingNATs)
         return matchingNATs[0].organization
 
@@ -898,7 +963,11 @@ class OrdererGensisBlockCompositionCallback(compose.CompositionCallback, Callbac
         return "{0}/{1}".format(self.getVolumePath(composition, pathType), self.genesisFileName)
 
     def getOrdererList(self, composition):
-        return [serviceName for serviceName in composition.getServiceNames() if "orderer" in serviceName]
+        try:
+            ret = [serviceName for serviceName in composition.getServiceNames() if "orderer" in serviceName]
+        except TypeError:
+            ret = [serviceName for serviceName in composition.getServiceNames() if b"orderer" in serviceName]
+        return ret
 
     def composing(self, composition, context):
         print("Will copy gensisiBlock over at this point ")
@@ -937,7 +1006,11 @@ class PeerCompositionCallback(compose.CompositionCallback, CallbackHelper):
         compose.Composition.RegisterCallbackInContext(context, self)
 
     def getPeerList(self, composition):
-        return [serviceName for serviceName in composition.getServiceNames() if "peer" in serviceName]
+        try:
+            ret = [serviceName for serviceName in composition.getServiceNames() if "peer" in serviceName]
+        except:
+            ret = [serviceName for serviceName in composition.getServiceNames() if "peer" in serviceName.decode()]
+        return ret
 
     def composing(self, composition, context):
         'Will copy local MSP info over at this point for each peer node'

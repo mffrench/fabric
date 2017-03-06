@@ -26,7 +26,7 @@ from common import common_pb2
 try:
     import bdd_test_util
 except ImportError:
-    import steps.bdd_test_util
+    import steps.bdd_test_util as bdd_test_util
 
 from grpc.beta import implementations
 from grpc.framework.interfaces.face.face import AbortionError
@@ -166,8 +166,12 @@ class UserRegistration:
         return self.userName
 
     def closeStreams(self):
-        for compose_service, deliverStreamHelper in self.abDeliversStreamHelperDict.iteritems():
-            deliverStreamHelper.sendQueue.put(None)
+        try:
+            for compose_service, deliverStreamHelper in self.abDeliversStreamHelperDict.iteritems():
+                deliverStreamHelper.sendQueue.put(None)
+        except AttributeError:
+            for compose_service, deliverStreamHelper in self.abDeliversStreamHelperDict.items():
+                deliverStreamHelper.sendQueue.put(None)
 
     def connectToDeliverFunction(self, context, composeService, timeout=1):
         'Connect to the deliver function and drain messages to associated orderer queue'

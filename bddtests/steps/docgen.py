@@ -63,8 +63,12 @@ class DocumentGenerator:
         # Create table for environment
         composition = joinpoint.kwargs['self']
         envAdditions = composition.getEnvAdditions()
-        keys = envAdditions.keys()
-        keys.sort()
+        try:
+            keys = envAdditions.keys()
+            keys.sort()
+        except AttributeError as e:
+            keys = list(envAdditions)
+            keys.sort()
         envPreamble = " ".join(["{0}={1}".format(key,envAdditions[key]) for key in keys])
         args= " ".join(joinpoint.kwargs['argList'])
         self.output.write(env.get_template("html/cli.html").render(command="{0} {1}".format(envPreamble, args)))
@@ -73,9 +77,14 @@ class DocumentGenerator:
     def _getNetworkGroup(self, serviceName):
         groups = {"peer" : 1, "orderer" : 2}
         groupId = 0
-        for group, id in groups.iteritems():
-            if serviceName.lower().startswith(group):
-                groupId = id
+        try:
+            for group, id in groups.iteritems():
+                if serviceName.lower().startswith(group):
+                    groupId = id
+        except AttributeError:
+            for group, id in groups.items():
+                if serviceName.lower().startswith(group):
+                    groupId = id
         return groupId
 
     def _getNetworkForConfig(self, configAsYaml):
@@ -93,19 +102,34 @@ class DocumentGenerator:
 
     def _getNetworkForDirectory(self):
         network = {"nodes":[], "links": []}
-        for orgName, org in self.directory.getOrganizations().iteritems():
-            network['nodes'].append({"id" : orgName, "group" : 3, "type" : "org"})
-        for userName, user in self.directory.getUsers().iteritems():
-            network['nodes'].append({"id" : userName, "group" : 4, "type" : "user"})
-        # Now get links
-        for nct, cert in self.directory.getNamedCtxTuples().iteritems():
-            nctId = "{0}-{1}-{2}".format(nct.user, nct.nodeName, nct.organization)
-            network['nodes'].append({"id" : nctId, "group" : 5, "type" : "cert"})
-            network['links'].append({"source": nctId, "target": nct.organization, "value" : 1})
-            network['links'].append({"source": nctId, "target": nct.user, "value" : 1})
-            # Only add the context link if it is a compose service, else the target may not exist.
-            if nct.nodeName in self.composition.getServiceNames():
-                network['links'].append({"source": nctId, "target": nct.nodeName, "value" : 1})
+        try:
+            for orgName, org in self.directory.getOrganizations().iteritems():
+                network['nodes'].append({"id" : orgName, "group" : 3, "type" : "org"})
+            for userName, user in self.directory.getUsers().iteritems():
+                network['nodes'].append({"id" : userName, "group" : 4, "type" : "user"})
+            # Now get links
+            for nct, cert in self.directory.getNamedCtxTuples().iteritems():
+                nctId = "{0}-{1}-{2}".format(nct.user, nct.nodeName, nct.organization)
+                network['nodes'].append({"id" : nctId, "group" : 5, "type" : "cert"})
+                network['links'].append({"source": nctId, "target": nct.organization, "value" : 1})
+                network['links'].append({"source": nctId, "target": nct.user, "value" : 1})
+                # Only add the context link if it is a compose service, else the target may not exist.
+                if nct.nodeName in self.composition.getServiceNames():
+                    network['links'].append({"source": nctId, "target": nct.nodeName, "value" : 1})
+        except AttributeError:
+            for orgName, org in self.directory.getOrganizations().items():
+                network['nodes'].append({"id" : orgName, "group" : 3, "type" : "org"})
+            for userName, user in self.directory.getUsers().items():
+                network['nodes'].append({"id" : userName, "group" : 4, "type" : "user"})
+            # Now get links
+            for nct, cert in self.directory.getNamedCtxTuples().items():
+                nctId = "{0}-{1}-{2}".format(nct.user, nct.nodeName, nct.organization)
+                network['nodes'].append({"id" : nctId, "group" : 5, "type" : "cert"})
+                network['links'].append({"source": nctId, "target": nct.organization, "value" : 1})
+                network['links'].append({"source": nctId, "target": nct.user, "value" : 1})
+                # Only add the context link if it is a compose service, else the target may not exist.
+                if nct.nodeName in self.composition.getServiceNames():
+                    network['links'].append({"source": nctId, "target": nct.nodeName, "value" : 1})
         return network
 
     def _writeNetworkJson(self):
