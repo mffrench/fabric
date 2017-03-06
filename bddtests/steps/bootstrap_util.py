@@ -149,18 +149,18 @@ def createCertificate(req, issuerCertKey, serial, validityPeriod, digest="sha256
     cert.set_subject(req.get_subject())
     cert.set_pubkey(req.get_pubkey())
     if isCA:
-        cert.add_extensions([crypto.X509Extension("basicConstraints", True,
-                                                  "CA:TRUE, pathlen:0"),
-                             crypto.X509Extension("subjectKeyIdentifier", False, "hash",
+        cert.add_extensions([crypto.X509Extension(b"basicConstraints", True,
+                                                  b"CA:TRUE, pathlen:0"),
+                             crypto.X509Extension(b"subjectKeyIdentifier", False, b"hash",
                                                   subject=cert)])
         #TODO: This only is appropriate for root self signed!!!!
-        cert.add_extensions([crypto.X509Extension("authorityKeyIdentifier", False, "keyid:always", issuer=cert)])
+        cert.add_extensions([crypto.X509Extension(b"authorityKeyIdentifier", False, b"keyid:always", issuer=cert)])
     else:
-        cert.add_extensions([crypto.X509Extension("basicConstraints", True,
-                                                  "CA:FALSE"),
-                             crypto.X509Extension("subjectKeyIdentifier", False, "hash",
+        cert.add_extensions([crypto.X509Extension(b"basicConstraints", True,
+                                                  b"CA:FALSE"),
+                             crypto.X509Extension(b"subjectKeyIdentifier", False, b"hash",
                                                   subject=cert)])
-        cert.add_extensions([crypto.X509Extension("authorityKeyIdentifier", False, "keyid:always", issuer=issuerCert)])
+        cert.add_extensions([crypto.X509Extension(b"authorityKeyIdentifier", False, b"keyid:always", issuer=issuerCert)])
 
     cert.sign(issuerKey, digest)
     return cert

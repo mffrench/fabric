@@ -150,8 +150,12 @@ class DocumentGenerator:
         orgCert = newlyRegisteredOrg.getCertAsPEM()
         #Write out key material
         (fileName, fileExists) = self.contextHelper.getTmpPathForName(name="dir-org-{0}-cert".format(orgName), extension="pem")
-        with open(fileName, 'w') as f:
-            f.write(orgCert)
+        if isinstance(orgCert, str):
+            with open(fileName, 'w') as f:
+                f.write(orgCert)
+        else:
+            with open(fileName, 'wb') as f:
+                f.write(orgCert)
         self._addLinkToFile(fileName=fileName, linkText="Public cert for Organization")
         #Now the jinja output
         self.output.write(env.get_template("html/org.html").render(org=newlyRegisteredOrg, cert_href=self._getLinkInfoForFile(fileName), path_to_cert=fileName))
@@ -163,8 +167,12 @@ class DocumentGenerator:
         #Write out key material
         privateKeyAsPem = newlyRegisteredUser.getPrivateKeyAsPEM()
         (fileName, fileExists) = self.contextHelper.getTmpPathForName(name="dir-user-{0}-privatekey".format(userName), extension="pem")
-        with open(fileName, 'w') as f:
-            f.write(privateKeyAsPem)
+        if isinstance(privateKeyAsPem, str):
+            with open(fileName, 'w') as f:
+                f.write(privateKeyAsPem)
+        else:
+            with open(fileName, 'wb') as f:
+                f.write(privateKeyAsPem)
         #Weave into user tags setting
         weave(target=newlyRegisteredUser.setTagValue, advices=self.userSetTagValueAdvice)
         #Now the jinja output
@@ -177,8 +185,12 @@ class DocumentGenerator:
         header = env.get_template("html/scenario.html").render(scenario=scenario, steps=scenario.steps)
         main = env.get_template("html/main.html").render(header=header, body=self.output.getvalue())
         (fileName, fileExists) = self.contextHelper.getTmpPathForName("scenario", extension="html")
-        with open(fileName, 'w') as f:
-            f.write(main)
+        if isinstance(main, str):
+            with open(fileName, 'w') as f:
+                f.write(main)
+        else:
+            with open(fileName, 'wb') as f:
+                f.write(main)
         self._writeNetworkJson()
         return joinpoint.proceed()
 
@@ -192,8 +204,12 @@ class DocumentGenerator:
         #Write cert out
         fileNameTocheck = "dir-user-{0}-cert-{1}-{2}".format(namedNodeAdminTuple.user, namedNodeAdminTuple.nodeName, namedNodeAdminTuple.organization)
         (fileName, fileExists) = self.contextHelper.getTmpPathForName(fileNameTocheck, extension="pem")
-        with open(fileName, 'w') as f:
-            f.write(newCertAsPEM)
+        if isinstance(newCertAsPEM, str):
+            with open(fileName, 'w') as f:
+                f.write(newCertAsPEM)
+        else:
+            with open(fileName, 'wb') as f:
+                f.write(newCertAsPEM)
         return namedNodeAdminTuple
 
     def bootstrapHelperSignConfigItemAdvice(self, joinpoint):
