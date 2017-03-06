@@ -37,14 +37,22 @@ from common import msp_principal_pb2
 from msp import mspconfig_pb2
 from peer import configuration_pb2 as peer_dot_configuration_pb2
 from orderer import configuration_pb2 as orderer_dot_configuration_pb2
-import orderer_util
-
-from contexthelper import ContextHelper
+try:
+    import orderer_util
+except ImportError:
+    import steps.orderer_util as orderer_util
+try:
+    from contexthelper import ContextHelper
+except ImportError:
+    from steps.contexthelper import ContextHelper
 
 import os
 import re
 import shutil
-import compose
+try:
+    import compose
+except ImportError:
+    import steps.compose as compose
 
 # Type to represent tuple of user, nodeName, ogranization
 NodeAdminTuple = namedtuple("NodeAdminTuple", ['user', 'nodeName', 'organization'])
@@ -383,7 +391,7 @@ class BootstrapHelper:
         return rand.bytes(BootstrapHelper.DEFAULT_NONCE_SIZE)
 
     @classmethod
-    def addSignatureToSignedConfigItem(cls, configUpdateEnvelope, (entity, cert)):
+    def addSignatureToSignedConfigItem(cls, configUpdateEnvelope, entity, cert):
         sigHeader = common_dot_common_pb2.SignatureHeader(creator=crypto.dump_certificate(crypto.FILETYPE_ASN1, cert),
                                                           nonce=BootstrapHelper.getNonce())
         sigHeaderBytes = sigHeader.SerializeToString()

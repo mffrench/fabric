@@ -44,7 +44,10 @@ class ContextHelper:
 
     def getTmpPathForName(self, name, extension=None, copyFromCache=False):
         'Returns the tmp path for a file, and a flag indicating if the file exists. Will also check in the cache and copy to tmp if copyFromCache==True'
-        unicodeName = unicode(name)
+        try:
+            unicodeName = unicode(name)
+        except NameError as e:
+            unicodeName = str(name)
         slugifiedName = ".".join([slugify(unicodeName), extension]) if extension else slugify(unicodeName)
         tmpPath = os.path.join(self.getTmpProjectPath(), slugifiedName)
         fileExists = False

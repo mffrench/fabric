@@ -1,5 +1,8 @@
 
-from StringIO import StringIO
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 from itertools import chain
 from google.protobuf.message import Message
 
@@ -12,8 +15,10 @@ env = Environment(
     trim_blocks=True,
     lstrip_blocks=True
 )
-
-from bootstrap_util import getDirectory
+try:
+    from bootstrap_util import getDirectory
+except ImportError:
+    from steps.bootstrap_util import getDirectory
 
 class DocumentGenerator:
 

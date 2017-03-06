@@ -16,11 +16,17 @@
 
 import time
 import datetime
-import Queue
+try:
+    import Queue
+except ImportError:
+    import queue
 from orderer import ab_pb2
 from common import common_pb2
 
-import bdd_test_util
+try:
+    import bdd_test_util
+except ImportError:
+    import steps.bdd_test_util
 
 from grpc.beta import implementations
 from grpc.framework.interfaces.face.face import AbortionError

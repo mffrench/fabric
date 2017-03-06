@@ -15,8 +15,14 @@
 
 import os
 import uuid
-import bdd_test_util
-from contexthelper import ContextHelper
+try:
+    import bdd_test_util
+except ImportError:
+    import steps.bdd_test_util
+try:
+    from contexthelper import ContextHelper
+except ImportError:
+    from steps.contexthelper import ContextHelper
 import json
 
 from abc import ABCMeta, abstractmethod

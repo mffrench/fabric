@@ -33,9 +33,9 @@ def cli_call(arg_list, expect_success=True, env=os.environ.copy()):
     output, error = p.communicate()
     if p.returncode != 0:
         if output is not None:
-            print("Output:\n" + output)
+            print("Output:\n" + str(output))
         if error is not None:
-            print("Error Message:\n" + error)
+            print("Error Message:\n" + str(error))
         if expect_success:
             raise subprocess.CalledProcessError(p.returncode, arg_list, output)
     return output, error, p.returncode

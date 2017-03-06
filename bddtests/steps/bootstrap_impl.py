@@ -198,7 +198,7 @@ def step_impl(context, userName, createChannelSignedConfigEnvelopeName):
     for row in context.table.rows:
         org = directory.getOrganization(row['Organization'])
         assert bootstrap_util.Network.Peer in org.networks, "Organization '{0}' not in Peer network".format(org.name)
-        bootstrap_util.BootstrapHelper.addSignatureToSignedConfigItem(config_update_envelope, (org, org.getSelfSignedCert()))
+        bootstrap_util.BootstrapHelper.addSignatureToSignedConfigItem(config_update_envelope, org, org.getSelfSignedCert())
     # print("Signatures for signedConfigEnvelope:\n {0}\n".format(signedConfigEnvelope.Items[0]))
 
 @given(u'the user "{userName}" creates a ConfigUpdate Tx "{configUpdateTxName}" using signed ConfigUpdateEnvelope "{createChannelSignedConfigEnvelopeName}"')

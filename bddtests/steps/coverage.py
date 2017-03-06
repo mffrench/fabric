@@ -1,10 +1,16 @@
-import cStringIO
+try:
+    import cStringIO
+except ImportError:
+    from io import StringIO as cStringIO
 import os
 import glob
 import errno
 from collections import OrderedDict
 
-import bdd_test_util
+try:
+    import bdd_test_util
+except ImportError:
+    import steps.bdd_test_util
 
 
 def testCoverage():
