@@ -71,5 +71,8 @@ func (sf *sigFilter) Apply(message *cb.Envelope) (filter.Action, filter.Committe
 		return filter.Forward, nil
 	}
 
+	if logger.IsEnabledFor(logging.DEBUG) {
+		logger.Debugf("Rejecting because of err: %s", err)
+	}
 	return filter.Reject, nil
 }

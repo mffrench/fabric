@@ -206,7 +206,10 @@ func (cc *ChannelConfig) validateHashingAlgorithm() error {
 
 func (cc *ChannelConfig) validateBlockDataHashingStructure() error {
 	if cc.protos.BlockDataHashingStructure.Width != math.MaxUint32 {
-		return fmt.Errorf("BlockDataHashStructure width only supported at MaxUint32 in this version")
+		return fmt.Errorf(
+			"BlockDataHashStructure width only supported at MaxUint32 (%d) in this version. Current is %d.",
+			math.MaxUint32,
+			cc.protos.BlockDataHashingStructure.Width)
 	}
 	return nil
 }

@@ -134,7 +134,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 		_, filterErr := support.Filters().Apply(msg)
 
 		if filterErr != nil {
-			logger.Debugf("Rejecting broadcast message")
+			logger.Debugf("Rejecting broadcast message : %s", filterErr.Error())
 			return srv.Send(&ab.BroadcastResponse{Status: cb.Status_BAD_REQUEST})
 		}
 
