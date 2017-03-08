@@ -1,5 +1,6 @@
 #!/bin/bash
 
+cd $GOPATH/src/github.com/hyperledger/fabric/
 set -eux
 
 # To set a proto root for a set of protos, create a .protoroot file in one of the parent directories
@@ -27,3 +28,4 @@ for dir in $ROOTLESS_PROTO_DIRS $PROTO_ROOT_DIRS; do
 	       protoc --proto_path="$dir" --python_out=$GOPATH/src/github.com/hyperledger/fabric/bddtests/ "$protos"/*.proto
 	done
 done
+cd -
