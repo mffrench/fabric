@@ -353,9 +353,8 @@ class BootstrapHelper:
     KEY_CONSENSUS_TYPE = "ConsensusType"
     KEY_CHAIN_CREATION_POLICY_NAMES = "ChainCreationPolicyNames"
     KEY_ACCEPT_ALL_POLICY = "AcceptAllPolicy"
-    KEY_INGRESS_POLICY = "IngressPolicyNames"
-    KEY_EGRESS_POLICY = "EgressPolicyNames"
     KEY_HASHING_ALGORITHM = "HashingAlgorithm"
+    KEY_BLOCK_DATA_HASHING_STRUCTURE = "BlockDataHashingStructure"
     KEY_BATCH_SIZE = "BatchSize"
     KEY_BATCH_TIMEOUT = "BatchTimeout"
     KEY_CREATIONPOLICY = "CreationPolicy"
@@ -496,22 +495,6 @@ class BootstrapHelper:
             commonConfigType=common_dot_configtx_pb2.ConfigItem.ConfigType.Value("POLICY"),
             key=key,
             value=policy.SerializeToString())
-        return self.signConfigItem(configItem)
-
-    def encodeEgressPolicy(self):
-        configItem = self.getConfigItem(
-            commonConfigType=common_dot_configtx_pb2.ConfigItem.ConfigType.Value("ORDERER"),
-            key=BootstrapHelper.KEY_EGRESS_POLICY,
-            value=orderer_dot_configuration_pb2.EgressPolicyNames(
-                names=[BootstrapHelper.KEY_ACCEPT_ALL_POLICY]).SerializeToString())
-        return self.signConfigItem(configItem)
-
-    def encodeIngressPolicy(self):
-        configItem = self.getConfigItem(
-            commonConfigType=common_dot_configtx_pb2.ConfigItem.ConfigType.Value("ORDERER"),
-            key=BootstrapHelper.KEY_INGRESS_POLICY,
-            value=orderer_dot_configuration_pb2.IngressPolicyNames(
-                names=[BootstrapHelper.KEY_ACCEPT_ALL_POLICY]).SerializeToString())
         return self.signConfigItem(configItem)
 
     def encodeAcceptAllPolicy(self):
@@ -658,12 +641,15 @@ def createChannelConfigGroup(directory, hashingAlgoName="SHA256", consensusType=
     channel = common_dot_configtx_pb2.ConfigGroup()
     # channel.groups[ApplicationGroup] = common_dot_configtx_pb2.ConfigGroup()
     # channel.groups[OrdererGroup] = common_dot_configtx_pb2.ConfigGroup()
-    channel.groups[ApplicationGroup]
-    channel.groups[OrdererGroup]
+    # channel.groups[ApplicationGroup]
+    # channel.groups[OrdererGroup]
     # v = common_dot_configtx_pb2.ConfigItem.ConfigType.Value
     # configItems.append(bootstrapHelper.encodeHashingAlgorithm())
     channel.values[BootstrapHelper.KEY_HASHING_ALGORITHM].value = toValue(
         common_dot_configuration_pb2.HashingAlgorithm(name=hashingAlgoName))
+    channel.values[BootstrapHelper.KEY_BLOCK_DATA_HASHING_STRUCTURE].value = toValue(
+        common_dot_configuration_pb2.BlockDataHashingStructure(width=4294967295)
+    )
 
     channel.groups[OrdererGroup].values[BootstrapHelper.KEY_BATCH_SIZE].value = toValue(orderer_dot_configuration_pb2.BatchSize(maxMessageCount=batchSizeMaxMessageCount,absoluteMaxBytes=batchSizeAbsoluteMaxBytes,preferredMaxBytes=batchSizePreferredMaxBytes))
     channel.groups[OrdererGroup].values[BootstrapHelper.KEY_BATCH_TIMEOUT].value = toValue(orderer_dot_configuration_pb2.BatchTimeout(timeout=batchTimeout))
@@ -672,14 +658,6 @@ def createChannelConfigGroup(directory, hashingAlgoName="SHA256", consensusType=
     acceptAllPolicy = common_dot_policies_pb2.Policy(type=1, policy=AuthDSLHelper.Envelope(
         signaturePolicy=AuthDSLHelper.NOutOf(0, []), identities=[]).SerializeToString())
     channel.policies[BootstrapHelper.KEY_ACCEPT_ALL_POLICY].policy.CopyFrom(acceptAllPolicy)
-    channel.groups[OrdererGroup].values[
-        BootstrapHelper.KEY_INGRESS_POLICY].value = toValue(
-        orderer_dot_configuration_pb2.IngressPolicyNames(
-            names=[BootstrapHelper.KEY_ACCEPT_ALL_POLICY]))
-    channel.groups[OrdererGroup].values[
-        BootstrapHelper.KEY_EGRESS_POLICY].value = toValue(
-        orderer_dot_configuration_pb2.EgressPolicyNames(
-            names=[BootstrapHelper.KEY_ACCEPT_ALL_POLICY]))
     #New meta policy info
     typeImplicitMeta = common_dot_policies_pb2.Policy.PolicyType.Value("IMPLICIT_META")
     Policy = common_dot_policies_pb2.Policy
