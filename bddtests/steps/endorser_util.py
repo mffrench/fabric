@@ -136,13 +136,14 @@ def getExample02ChaincodeSpec():
 def _createDeploymentSpecAsFile(ccSpec, outputPath):
     '''peer chaincode package -n myCC -c '{"Args":["init","a","100","b","200"]}' -p github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02 --logging-level=DEBUG test.file'''
     myEnv = os.environ.copy()
-    myEnv['CORE_PEER_MSPCONFIGPATH'] = "./../msp/sampleConfig"
+    fabric_go_root_path = myEnv['GOPATH'] + "/src/github.com/hyperledger/fabric"
+    myEnv['CORE_PEER_MSPCONFIGPATH'] = fabric_go_root_path + "/bddtests/msp/sampleConfig"
     nameArgs = ["-n", ccSpec.chaincode_id.name]
     ctorArgs = ["-c", json.dumps({'Args' : [item for item in ccSpec.input.args]})]
     pathArgs = ["-p", ccSpec.chaincode_id.path]
     versionArgs = ["-v", ccSpec.chaincode_id.version]
     output, error, returncode = \
-        bdd_test_util.cli_call(["peer","chaincode","package"] + nameArgs + ctorArgs + pathArgs + versionArgs + [outputPath], expect_success=True, env=myEnv)
+        bdd_test_util.cli_call([fabric_go_root_path + "/build/bin/peer","chaincode","package"] + nameArgs + ctorArgs + pathArgs + versionArgs + [outputPath], expect_success=True, env=myEnv)
     return output
 
 

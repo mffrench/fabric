@@ -45,7 +45,6 @@ def step_impl(context, userName, certAlias, proposalAlias, channelName, ccSpecAl
     assert ccSpecAlias in user.tags, "ChaincodeSpec alias '{0}' not found for user '{1}'".format(ccSpecAlias, userName)
     ccSpec = user.tags[ccSpecAlias]
 
-
     ccDeploymentSpec = endorser_util.createDeploymentSpec(context=context, ccSpec=ccSpec)
     lcChaincodeSpec = endorser_util.createInstallChaincodeSpecForBDD(ccDeploymentSpec=ccDeploymentSpec, chainID=str(channelName))
     # Find the cert using the cert tuple information saved for the user under certAlias

@@ -677,7 +677,7 @@ def createChannelConfigGroup(directory, hashingAlgoName="SHA256", consensusType=
     acceptAllPolicy = common_dot_policies_pb2.Policy(type=1, policy=AuthDSLHelper.Envelope(
         signaturePolicy=AuthDSLHelper.NOutOf(0, []), identities=[]).SerializeToString())
     channel.policies[BootstrapHelper.KEY_ACCEPT_ALL_POLICY].policy.CopyFrom(acceptAllPolicy)
-    
+
     # For now, setting same policies for each 'Non-Org' group
     typeImplicitMeta = common_dot_policies_pb2.Policy.PolicyType.Value("IMPLICIT_META")
     Policy = common_dot_policies_pb2.Policy
