@@ -665,7 +665,7 @@ def createChannelConfigGroup(directory, hashingAlgoName="SHA256", consensusType=
     # configItems.append(bootstrapHelper.encodeHashingAlgorithm())
     channel.values[BootstrapHelper.KEY_HASHING_ALGORITHM].value = toValue(
         common_dot_configuration_pb2.HashingAlgorithm(name=hashingAlgoName))
-    channel.values[BootstrapHelper.KEY_BLOCK_DATA_HASHING_STRUCTURE].value = toValue(
+    channel.values[BootstrapHelper.KEY_BLOCKDATA_HASHING_STRUCTURE].value = toValue(
         common_dot_configuration_pb2.BlockDataHashingStructure(width=4294967295)
     )
 
