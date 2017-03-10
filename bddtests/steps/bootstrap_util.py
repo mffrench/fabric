@@ -683,8 +683,8 @@ def createChannelConfigGroup(directory, hashingAlgoName="SHA256", consensusType=
     channel = common_dot_configtx_pb2.ConfigGroup()
     # channel.groups[ApplicationGroup] = common_dot_configtx_pb2.ConfigGroup()
     # channel.groups[OrdererGroup] = common_dot_configtx_pb2.ConfigGroup()
-    channel.groups[ApplicationGroup]
-    channel.groups[OrdererGroup]
+    # channel.groups[ApplicationGroup]
+    # channel.groups[OrdererGroup]
     # v = common_dot_configtx_pb2.ConfigItem.ConfigType.Value
     # configItems.append(bootstrapHelper.encodeHashingAlgorithm())
     channel.values[BootstrapHelper.KEY_HASHING_ALGORITHM].value = toValue(

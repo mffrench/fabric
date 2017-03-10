@@ -29,7 +29,11 @@ def cli_call(arg_list, expect_success=True, env=os.environ.copy()):
     # the update-cli.py script has a #!/bin/python as the first line
     # which calls the system python, not the virtual env python we
     # setup for running the update-cli
-    p = subprocess.Popen(arg_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    try:
+        p = subprocess.Popen(arg_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    except Error as e:
+        print("Error on following subprocess arg_list call:  " + str(arg_list))
+        raise e
     output, error = p.communicate()
     if p.returncode != 0:
         if output is not None:
