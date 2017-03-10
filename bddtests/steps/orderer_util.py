@@ -25,8 +25,10 @@ from common import common_pb2
 
 try:
     import bdd_test_util
+    import bootstrap_util
 except ImportError:
     import steps.bdd_test_util as bdd_test_util
+    import steps.bootstrap_util as bootstrap_util
 
 from grpc.beta import implementations
 from grpc.framework.interfaces.face.face import AbortionError
@@ -106,8 +108,11 @@ class StreamHelper:
 
 class DeliverStreamHelper(StreamHelper):
 
-    def __init__(self, ordererStub, timeout = 110):
+    def __init__(self, ordererStub, entity, directory, nodeAdminTuple, timeout = 110):
         StreamHelper.__init__(self)
+        self.nodeAdminTuple = nodeAdminTuple
+        self.directory = directory
+        self.entity = entity
         # Set the UpdateMessage and start the stream
         sendGenerator = self.createSendGenerator(timeout)
         self.replyGenerator = ordererStub.Deliver(sendGenerator, timeout + 1)
@@ -120,19 +125,12 @@ class DeliverStreamHelper(StreamHelper):
         )
         print("SeekInfo = {0}".format(seekInfo))
         print("")
-        return common_pb2.Envelope(
-            payload = common_pb2.Payload(
-                header = common_pb2.Header(
-                    channel_header = common_pb2.ChannelHeader( channel_id = chainID ).SerializeToString(),
-                    signature_header = common_pb2.SignatureHeader().SerializeToString(),
-                ),
-                data = seekInfo.SerializeToString(),
-            ).SerializeToString(),
-        )
+        return seekInfo
 
     def seekToRange(self, chainID = TEST_CHAIN_ID, start = 'Oldest', end = 'Newest'):
         seekInfo = self.createSeekInfo(start = start, end = end, chainID = chainID)
-        self.sendQueue.put(seekInfo)
+        envelope = bootstrap_util.createEnvelopeForMsg(directory=self.directory, chainId=chainID, msg=seekInfo, typeAsString="DELIVER_SEEK_INFO", nodeAdminTuple=self.nodeAdminTuple)
+        self.sendQueue.put(envelope)
 
     def getBlocks(self):
         blocks = []
@@ -154,8 +152,9 @@ class DeliverStreamHelper(StreamHelper):
 
 class UserRegistration:
 
-    def __init__(self, userName):
+    def __init__(self, userName, directory):
         self.userName= userName
+        self.directory = directory
         self.tags = {}
         # Dictionary of composeService->atomic broadcast grpc Stub
         self.atomicBroadcastStubsDict = {}
@@ -173,10 +172,12 @@ class UserRegistration:
             for compose_service, deliverStreamHelper in self.abDeliversStreamHelperDict.items():
                 deliverStreamHelper.sendQueue.put(None)
 
-    def connectToDeliverFunction(self, context, composeService, timeout=1):
+    def connectToDeliverFunction(self, context, composeService, cert, nodeAdminTuple, timeout=1):
         'Connect to the deliver function and drain messages to associated orderer queue'
         assert not composeService in self.abDeliversStreamHelperDict, "Already connected to deliver stream on {0}".format(composeService)
-        streamHelper = DeliverStreamHelper(self.getABStubForComposeService(context, composeService))
+        streamHelper = DeliverStreamHelper(directory=self.directory,
+                                           ordererStub=self.getABStubForComposeService(context, composeService),
+                                           entity=self, nodeAdminTuple=nodeAdminTuple)
         self.abDeliversStreamHelperDict[composeService] = streamHelper
         return streamHelper
 

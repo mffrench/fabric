@@ -19,10 +19,9 @@ package multichain
 import (
 	"fmt"
 
+	"github.com/hyperledger/fabric/common/config"
 	"github.com/hyperledger/fabric/common/configtx"
 	configtxapi "github.com/hyperledger/fabric/common/configtx/api"
-	configvaluesapi "github.com/hyperledger/fabric/common/configvalues"
-	configtxorderer "github.com/hyperledger/fabric/common/configvalues/channel/orderer"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/orderer/common/filter"
 	cb "github.com/hyperledger/fabric/protos/common"
@@ -39,7 +38,7 @@ type chainCreator interface {
 
 type limitedSupport interface {
 	PolicyManager() policies.Manager
-	SharedConfig() configvaluesapi.Orderer
+	SharedConfig() config.Orderer
 }
 
 type systemChainCommitter struct {
@@ -121,16 +120,16 @@ func (scf *systemChainFilter) authorize(configEnvelope *cb.ConfigEnvelope) error
 		return fmt.Errorf("Failing to validate chain creation because of config update envelope unmarshaling error: %s", err)
 	}
 
-	config, err := configtx.UnmarshalConfigUpdate(configUpdateEnv.ConfigUpdate)
+	configMsg, err := configtx.UnmarshalConfigUpdate(configUpdateEnv.ConfigUpdate)
 	if err != nil {
 		return fmt.Errorf("Failing to validate chain creation because of unmarshaling error: %s", err)
 	}
 
-	if config.WriteSet == nil {
+	if configMsg.WriteSet == nil {
 		return fmt.Errorf("Failing to validate channel creation because WriteSet is nil")
 	}
 
-	ordererGroup, ok := config.WriteSet.Groups[configtxorderer.GroupKey]
+	ordererGroup, ok := configMsg.WriteSet.Groups[config.OrdererGroupKey]
 	if !ok {
 		return fmt.Errorf("Rejecting channel creation because it is missing orderer group")
 	}

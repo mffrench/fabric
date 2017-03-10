@@ -23,9 +23,9 @@ import (
 	"net"
 	"sync"
 
+	"github.com/hyperledger/fabric/common/config"
 	"github.com/hyperledger/fabric/common/configtx"
 	configtxapi "github.com/hyperledger/fabric/common/configtx/api"
-	configvaluesapi "github.com/hyperledger/fabric/common/configvalues"
 	mockconfigtx "github.com/hyperledger/fabric/common/mocks/configtx"
 	mockpolicies "github.com/hyperledger/fabric/common/mocks/policies"
 	"github.com/hyperledger/fabric/common/policies"
@@ -46,9 +46,11 @@ import (
 
 var peerLogger = logging.MustGetLogger("peer")
 
+var peerServer comm.GRPCServer
+
 type chainSupport struct {
 	configtxapi.Manager
-	configvaluesapi.Application
+	config.Application
 	ledger ledger.PeerLedger
 }
 
@@ -297,6 +299,30 @@ func GetCurrConfigBlock(cid string) *common.Block {
 	return nil
 }
 
+// GetMSPIDs returns the ID of each application MSP defined on this chain
+func GetMSPIDs(cid string) []string {
+	chains.RLock()
+	defer chains.RUnlock()
+	if c, ok := chains.list[cid]; ok {
+		if c == nil || c.cs == nil ||
+			c.cs.ApplicationConfig() == nil ||
+			c.cs.ApplicationConfig().Organizations() == nil {
+			return nil
+		}
+
+		orgs := c.cs.ApplicationConfig().Organizations()
+		toret := make([]string, len(orgs))
+		i := 0
+		for _, org := range orgs {
+			toret[i] = org.MSPID()
+			i++
+		}
+
+		return toret
+	}
+	return nil
+}
+
 // SetCurrConfigBlock sets the current config block of the specified chain
 func SetCurrConfigBlock(block *common.Block, cid string) error {
 	chains.Lock()
@@ -379,4 +405,23 @@ type channelPolicyManagerGetter struct{}
 func (c *channelPolicyManagerGetter) Manager(channelID string) (policies.Manager, bool) {
 	policyManager := GetPolicyManager(channelID)
 	return policyManager, policyManager != nil
+}
+
+// CreatePeerServer creates an instance of comm.GRPCServer
+// This server is used for peer communications
+func CreatePeerServer(listenAddress string,
+	secureConfig comm.SecureServerConfig) (comm.GRPCServer, error) {
+
+	var err error
+	peerServer, err = comm.NewGRPCServer(listenAddress, secureConfig)
+	if err != nil {
+		peerLogger.Errorf("Failed to create peer server (%s)", err)
+		return nil, err
+	}
+	return peerServer, nil
+}
+
+// GetPeerServer returns the peer server instance
+func GetPeerServer() comm.GRPCServer {
+	return peerServer
 }

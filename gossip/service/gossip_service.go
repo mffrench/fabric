@@ -61,15 +61,15 @@ type GossipService interface {
 // DeliveryServiceFactory factory to create and initialize delivery service instance
 type DeliveryServiceFactory interface {
 	// Returns an instance of delivery client
-	Service(g GossipService, endpoints []string) (deliverclient.DeliverService, error)
+	Service(g GossipService, endpoints []string, msc api.MessageCryptoService) (deliverclient.DeliverService, error)
 }
 
 type deliveryFactoryImpl struct {
 }
 
 // Returns an instance of delivery client
-func (*deliveryFactoryImpl) Service(g GossipService, endpoints []string) (deliverclient.DeliverService, error) {
-	return deliverclient.NewDeliverService(g, endpoints)
+func (*deliveryFactoryImpl) Service(g GossipService, endpoints []string, mcs api.MessageCryptoService) (deliverclient.DeliverService, error) {
+	return deliverclient.NewDeliverService(g, endpoints, mcs)
 }
 
 type gossipServiceImpl struct {
@@ -133,6 +133,7 @@ func InitGossipServiceCustomDeliveryFactory(peerIdentity []byte, endpoint string
 		}
 
 		idMapper := identity.NewIdentityMapper(mcs)
+		idMapper.Put(mcs.GetPKIidOfCert(peerIdentity), peerIdentity)
 
 		gossip := integration.NewGossipComponent(peerIdentity, endpoint, s, secAdv, mcs, idMapper, dialOpts, bootPeers...)
 		gossipServiceInstance = &gossipServiceImpl{
@@ -167,7 +168,7 @@ func (g *gossipServiceImpl) InitializeChannel(chainID string, committer committe
 	g.chains[chainID] = state.NewGossipStateProvider(chainID, g, committer, g.mcs)
 	if g.deliveryService == nil {
 		var err error
-		g.deliveryService, err = g.deliveryFactory.Service(gossipServiceInstance, endpoints)
+		g.deliveryService, err = g.deliveryFactory.Service(gossipServiceInstance, endpoints, g.mcs)
 		if err != nil {
 			logger.Warning("Cannot create delivery client, due to", err)
 		}
@@ -293,7 +294,7 @@ func (s *secImpl) GetPKIidOfCert(peerIdentity api.PeerIdentityType) gossipCommon
 	return gossipCommon.PKIidType(peerIdentity)
 }
 
-func (s *secImpl) VerifyBlock(chainID gossipCommon.ChainID, signedBlock api.SignedBlock) error {
+func (s *secImpl) VerifyBlock(chainID gossipCommon.ChainID, signedBlock []byte) error {
 	return nil
 }
 

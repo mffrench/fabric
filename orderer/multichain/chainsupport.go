@@ -17,7 +17,7 @@ limitations under the License.
 package multichain
 
 import (
-	configvaluesapi "github.com/hyperledger/fabric/common/configvalues"
+	"github.com/hyperledger/fabric/common/config"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
@@ -27,7 +27,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/filter"
 	"github.com/hyperledger/fabric/orderer/common/sigfilter"
 	"github.com/hyperledger/fabric/orderer/common/sizefilter"
-	ordererledger "github.com/hyperledger/fabric/orderer/ledger"
+	"github.com/hyperledger/fabric/orderer/ledger"
 	cb "github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/utils"
 )
@@ -66,7 +66,7 @@ type Chain interface {
 type ConsenterSupport interface {
 	crypto.LocalSigner
 	BlockCutter() blockcutter.Receiver
-	SharedConfig() configvaluesapi.Orderer
+	SharedConfig() config.Orderer
 	CreateNextBlock(messages []*cb.Envelope) *cb.Block
 	WriteBlock(block *cb.Block, committers []filter.Committer, encodedMetadataValue []byte) *cb.Block
 	ChainID() string // ChainID returns the chain ID this specific consenter instance is associated with
@@ -81,7 +81,7 @@ type ChainSupport interface {
 	PolicyManager() policies.Manager
 
 	// Reader returns the chain Reader for the chain
-	Reader() ordererledger.Reader
+	Reader() ledger.Reader
 
 	broadcast.Support
 	ConsenterSupport
@@ -123,7 +123,7 @@ func newChainSupport(
 
 	var err error
 
-	lastBlock := ordererledger.GetBlock(cs.Reader(), cs.Reader().Height()-1)
+	lastBlock := ledger.GetBlock(cs.Reader(), cs.Reader().Height()-1)
 	metadata, err := utils.GetMetadataFromBlock(lastBlock, cb.BlockMetadataIndex_ORDERER)
 	// Assuming a block created with cb.NewBlock(), this should not
 	// error even if the orderer metadata is an empty byte slice
@@ -145,7 +145,7 @@ func createStandardFilters(ledgerResources *ledgerResources) *filter.RuleSet {
 	return filter.NewRuleSet([]filter.Rule{
 		filter.EmptyRejectRule,
 		sizefilter.MaxBytesRule(ledgerResources.SharedConfig().BatchSize().AbsoluteMaxBytes),
-		sigfilter.New(ledgerResources.SharedConfig().IngressPolicyNames, ledgerResources.PolicyManager()),
+		sigfilter.New(policies.ChannelWriters, ledgerResources.PolicyManager()),
 		configtxfilter.NewFilter(ledgerResources),
 		filter.AcceptRule,
 	})
@@ -157,7 +157,7 @@ func createSystemChainFilters(ml *multiLedger, ledgerResources *ledgerResources)
 	return filter.NewRuleSet([]filter.Rule{
 		filter.EmptyRejectRule,
 		sizefilter.MaxBytesRule(ledgerResources.SharedConfig().BatchSize().AbsoluteMaxBytes),
-		sigfilter.New(ledgerResources.SharedConfig().IngressPolicyNames, ledgerResources.PolicyManager()),
+		sigfilter.New(policies.ChannelWriters, ledgerResources.PolicyManager()),
 		newSystemChainFilter(ledgerResources, ml),
 		configtxfilter.NewFilter(ledgerResources),
 		filter.AcceptRule,
@@ -184,7 +184,7 @@ func (cs *chainSupport) BlockCutter() blockcutter.Receiver {
 	return cs.cutter
 }
 
-func (cs *chainSupport) Reader() ordererledger.Reader {
+func (cs *chainSupport) Reader() ledger.Reader {
 	return cs.ledger
 }
 
@@ -193,7 +193,7 @@ func (cs *chainSupport) Enqueue(env *cb.Envelope) bool {
 }
 
 func (cs *chainSupport) CreateNextBlock(messages []*cb.Envelope) *cb.Block {
-	return ordererledger.CreateNextBlock(cs.ledger, messages)
+	return ledger.CreateNextBlock(cs.ledger, messages)
 }
 
 func (cs *chainSupport) addBlockSignature(block *cb.Block) {

@@ -11,25 +11,33 @@ Feature: Bootstrap
   As a blockchain entrepreneur
   I want to bootstrap a new blockchain network
 
-    @doNotDecompose
+    #@doNotDecompose
     @generateDocs
   Scenario Outline: Bootstrap a development network with 4 peers (2 orgs)  and 1 orderer (1 org), each having a single independent root of trust (No fabric-ca, just openssl)
     #creates 1 self-signed key/cert pair per orderer organization
     Given the orderer network has organizations:
-      | Organization  |
-      | ordererOrg0   |
+      | Organization  |   Readers  | Writers  | Admins  |
+      | ordererOrg0   |    member  |  member  |  admin  |
 
     And user requests role of orderer admin by creating a key and csr for orderer and acquires signed certificate from organization:
       | User           | Orderer  | Organization  |
       | orderer0Signer | orderer0 | ordererOrg0   |
 
+
+    # Rolenames : MspPrincipal.proto
     And the peer network has organizations:
-      | Organization  |
-      |  peerOrg0     |
-      |  peerOrg1     |
-      |  peerOrg2     |
+      | Organization  |  Readers  | Writers  | Admins  |
+      |  peerOrg0     |   member  |  member  |  admin  |
+      |  peerOrg1     |   member  |  member  |  admin  |
+#      |  peerOrg2     |   member  |  member  |  admin  |
+
+
 
     And a ordererBootstrapAdmin is identified and given access to all public certificates and orderer node info
+
+    And the ordererBootstrapAdmin creates a cert alias "bootstrapCertAlias" for orderer network bootstrap purposes for organizations
+        | Organization     |
+        |  ordererOrg0     |
 
     And the ordererBootstrapAdmin generates a GUUID to identify the orderer system chain and refer to it by name as "OrdererSystemChainId"
 
@@ -37,7 +45,7 @@ Feature: Bootstrap
       | Organization  |
       |  peerOrg0     |
       |  peerOrg1     |
-      |  peerOrg2     |
+#      |  peerOrg2     |
 
     And the ordererBoostrapAdmin creates the chain creation policy names "chainCreationPolicyNames" for orderer system chain "OrdererSystemChainId" with policies:
       |PolicyName                  |
@@ -50,7 +58,7 @@ Feature: Bootstrap
 
     # Order info includes orderer admin/orderer information and address (host:port) from previous steps
     # Only the peer organizations can vary.
-    And the ordererBootstrapAdmin creates the genesis block "ordererGenesisBlock" for chain "OrdererSystemChainId" for network config policy "<PolicyType>" and consensus "<ConsensusType>" using chain creators policies:
+    And the ordererBootstrapAdmin using cert alias "bootstrapCertAlias" creates the genesis block "ordererGenesisBlock" for chain "OrdererSystemChainId" for network config policy "<PolicyType>" and consensus "<ConsensusType>" using chain creators policies:
       |  ConfigGroup Names           |
       |  chainCreatePolicy1          |
       |  chainCreationPolicyNames    |
@@ -108,14 +116,14 @@ Feature: Bootstrap
       |  peerOrg0     |
       |  peerOrg1     |
 
-    And the user "dev0Org0" creates a ConfigUpdate Tx "configUpdateTx1" using signed ConfigUpdateEnvelope "createChannelConfigUpdate1"
+    And the user "dev0Org0" creates a ConfigUpdate Tx "configUpdateTx1" using cert alias "dev0Org0App1" using signed ConfigUpdateEnvelope "createChannelConfigUpdate1"
 
     And the user "dev0Org0" broadcasts ConfigUpdate Tx "configUpdateTx1" to orderer "orderer0" to create channel "com.acme.blockchain.jdoe.Channel1"
 
     # Sleep as the deliver takes a bit to have the first block ready
     And I wait "2" seconds
 
-    When user "dev0Org0" connects to deliver function on orderer "orderer0"
+    When user "dev0Org0" using cert alias "dev0Org0App1" connects to deliver function on orderer "orderer0"
     And user "dev0Org0" sends deliver a seek request on orderer "orderer0" with properties:
       | ChainId                               | Start |  End    |
       | com.acme.blockchain.jdoe.Channel1     |   0   |  0      |
@@ -127,19 +135,23 @@ Feature: Bootstrap
     When user "dev0Org0" using cert alias "dev0Org0App1" requests to join channel using genesis block "genesisBlockForMyNewChannel" on peers with result "joinChannelResult"
       | Peer       |
       | peer0      |
+      | peer1      |
 
     Then user "dev0Org0" expects result code for "joinChannelResult" of "200" from peers:
       | Peer       |
       | peer0      |
+      | peer1      |
 
      # This is entry point for joining an existing channel
       When user "dev0Org1" using cert alias "dev0Org1App1" requests to join channel using genesis block "genesisBlockForMyNewChannel" on peers with result "joinChannelResult"
         | Peer       |
         | peer2      |
+        | peer3      |
 
       Then user "dev0Org1" expects result code for "joinChannelResult" of "200" from peers:
         | Peer       |
         | peer2      |
+        | peer3      |
 
     # Entry point for invoking on an existing channel
     When user "dev0Org0" creates a chaincode spec "cc_spec" with name "example02" of type "GOLANG" for chaincode "github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02" with args
@@ -162,7 +174,7 @@ Feature: Bootstrap
     # Under the covers, create a deployment spec, etc.
     When user "dev0Org0" using cert alias "dev0Org0App1" creates a instantiate proposal "instantiateProposal1" for channel "com.acme.blockchain.jdoe.Channel1" using chaincode spec "cc_spec"
 
-    And user "dev0Org0" sends proposal "instantiateProposal1" to endorsers with timeout of "30" seconds with proposal responses "instantiateProposalResponses":
+    And user "dev0Org0" sends proposal "instantiateProposal1" to endorsers with timeout of "90" seconds with proposal responses "instantiateProposalResponses":
       | Endorser |
       | peer0    |
       | peer2    |

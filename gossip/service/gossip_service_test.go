@@ -17,12 +17,11 @@ limitations under the License.
 package service
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"sync"
 	"testing"
-
-	"bytes"
 	"time"
 
 	"github.com/hyperledger/fabric/common/localmsp"
@@ -119,8 +118,7 @@ func TestLeaderElectionWithDeliverClient(t *testing.T) {
 		gossips[i].(*gossipServiceImpl).deliveryFactory = deliverServiceFactory
 		deliverServiceFactory.service.running[channelName] = false
 
-		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{0}, []string{"localhost:5005"})
-		gossips[i].(*gossipServiceImpl).chains[channelName].Stop()
+		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{1}, []string{"localhost:5005"})
 		service, exist := gossips[i].(*gossipServiceImpl).leaderElection[channelName]
 		assert.True(t, exist, "Leader election service should be created for peer %d and channel %s", i, channelName)
 		services[i] = &electionService{nil, false, 0}
@@ -176,8 +174,7 @@ func TestWithStaticDeliverClientLeader(t *testing.T) {
 	for i := 0; i < n; i++ {
 		gossips[i].(*gossipServiceImpl).deliveryFactory = deliverServiceFactory
 		deliverServiceFactory.service.running[channelName] = false
-		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{0}, []string{"localhost:5005"})
-		gossips[i].(*gossipServiceImpl).chains[channelName].Stop()
+		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{1}, []string{"localhost:5005"})
 	}
 
 	for i := 0; i < n; i++ {
@@ -188,7 +185,7 @@ func TestWithStaticDeliverClientLeader(t *testing.T) {
 	channelName = "chanB"
 	for i := 0; i < n; i++ {
 		deliverServiceFactory.service.running[channelName] = false
-		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{0}, []string{"localhost:5005"})
+		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{1}, []string{"localhost:5005"})
 	}
 
 	for i := 0; i < n; i++ {
@@ -225,8 +222,7 @@ func TestWithStaticDeliverClientNotLeader(t *testing.T) {
 	for i := 0; i < n; i++ {
 		gossips[i].(*gossipServiceImpl).deliveryFactory = deliverServiceFactory
 		deliverServiceFactory.service.running[channelName] = false
-		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{0}, []string{"localhost:5005"})
-		gossips[i].(*gossipServiceImpl).chains[channelName].Stop()
+		gossips[i].InitializeChannel(channelName, &mockLedgerInfo{1}, []string{"localhost:5005"})
 	}
 
 	for i := 0; i < n; i++ {
@@ -263,7 +259,7 @@ func TestWithStaticDeliverClientBothStaticAndLeaderElection(t *testing.T) {
 	for i := 0; i < n; i++ {
 		gossips[i].(*gossipServiceImpl).deliveryFactory = deliverServiceFactory
 		assert.Panics(t, func() {
-			gossips[i].InitializeChannel(channelName, &mockLedgerInfo{0}, []string{"localhost:5005"})
+			gossips[i].InitializeChannel(channelName, &mockLedgerInfo{1}, []string{"localhost:5005"})
 		}, "Dynamic leader lection based and static connection to ordering service can't exist simultaniosly")
 	}
 
@@ -274,7 +270,7 @@ type mockDeliverServiceFactory struct {
 	service *mockDeliverService
 }
 
-func (mf *mockDeliverServiceFactory) Service(g GossipService, endpoints []string) (deliverclient.DeliverService, error) {
+func (mf *mockDeliverServiceFactory) Service(g GossipService, endpoints []string, mcs api.MessageCryptoService) (deliverclient.DeliverService, error) {
 	return mf.service, nil
 }
 
@@ -626,7 +622,7 @@ func newGossipInstance(portPrefix int, id int, maxMsgCount int, boot ...int) Gos
 func bootPeers(portPrefix int, ids ...int) []string {
 	peers := []string{}
 	for _, id := range ids {
-		peers = append(peers, fmt.Sprintf("localhost:%d", (id+portPrefix)))
+		peers = append(peers, fmt.Sprintf("localhost:%d", id+portPrefix))
 	}
 	return peers
 }
@@ -666,7 +662,7 @@ func (*naiveCryptoService) GetPKIidOfCert(peerIdentity api.PeerIdentityType) gos
 
 // VerifyBlock returns nil if the block is properly signed,
 // else returns error
-func (*naiveCryptoService) VerifyBlock(chainID gossipCommon.ChainID, signedBlock api.SignedBlock) error {
+func (*naiveCryptoService) VerifyBlock(chainID gossipCommon.ChainID, signedBlock []byte) error {
 	return nil
 }
 

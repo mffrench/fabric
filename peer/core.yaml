@@ -32,7 +32,6 @@ logging:
     peer:       warning
     node:       info
     network:    warning
-    chaincode:  warning
     version:    warning
     protoutils: debug
     error:      warning
@@ -347,6 +346,10 @@ chaincode:
         vscc: enable
         qscc: enable
 
+    # logging section for the chaincode container
+    logLevel: warning
+    logFormat: '%{color}%{time:2006-01-02 15:04:05.000 MST} [%{module}] %{shortfunc} -> %{level:.4s} %{id:03x}%{color:reset} %{message}'
+
 ###############################################################################
 #
 #    Ledger section - ledger configuration encompases both the blockchain
@@ -367,9 +370,9 @@ ledger:
        username:
        password:
 
-       # Limit on the number of records to return per query
-       queryLimit: 1000
-
     # historyDatabase - options are true or false
     # Indicates if the history of key updates should be stored in goleveldb
     historyDatabase: true
+
+    # Limit on the number of records to return per query
+    queryLimit: 10000
