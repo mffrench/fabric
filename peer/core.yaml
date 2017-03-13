@@ -126,6 +126,9 @@ peer:
         # This is an endpoint that is published to peers outside of the organization.
         # If this isn't set, the peer will not be known to other organizations.
         externalEndpoint:
+        # Makes gossip skip verification of remote peer signature when performing
+        # the authentication handshake with remote peers
+        skipHandshake: false
 
         # Leader election service configuration
         election:
@@ -193,7 +196,7 @@ peer:
     # this is sent to client to validate the recived certificate from server when
     # establishing TLS connection
         rootcert:
-            file:
+            file: testdata/server1.pem
         # The server name use to verify the hostname returned by TLS handshake
         serverhostoverride:
 
