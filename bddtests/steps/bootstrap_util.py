@@ -38,6 +38,7 @@ from common import msp_principal_pb2
 from msp import mspconfig_pb2
 from peer import configuration_pb2 as peer_dot_configuration_pb2
 from orderer import configuration_pb2 as orderer_dot_configuration_pb2
+import identities_pb2
 
 try:
     import orderer_util
