@@ -30,11 +30,19 @@ from common import common_pb2 as common_dot_common_pb2
 from OpenSSL import crypto
 
 def getChaincodeSpec(ccType, path, name, args):
-	# make chaincode spec for chaincode to be deployed
-	ccSpec = chaincode_pb2.ChaincodeSpec(type=chaincode_pb2.ChaincodeSpec.Type.Value(ccType),
-		chaincode_id = chaincode_pb2.ChaincodeID(path=path, name=name, version="test"),
-		input = chaincode_pb2.ChaincodeInput(args = args))
-	return ccSpec
+    # make chaincode spec for chaincode to be deployed
+    try:
+        ccSpec = chaincode_pb2.ChaincodeSpec(type=chaincode_pb2.ChaincodeSpec.Type.Value(ccType),
+            chaincode_id = chaincode_pb2.ChaincodeID(path=path, name=name, version="test"),
+            input = chaincode_pb2.ChaincodeInput(args = args))
+    except TypeError:
+        for i in range(len(args)):
+            if isinstance(args[i], str):
+                args[i] = args[i].encode()
+        ccSpec = chaincode_pb2.ChaincodeSpec(type=chaincode_pb2.ChaincodeSpec.Type.Value(ccType),
+                                             chaincode_id = chaincode_pb2.ChaincodeID(path=path, name=name, version="test"),
+                                             input = chaincode_pb2.ChaincodeInput(args = args))
+    return ccSpec
 
 def getChaincodeSpecUsingTemplate(template_chaincode_spec, args):
     # make chaincode spec for chaincode to be deployed
@@ -47,7 +55,7 @@ def getChaincodeSpecUsingTemplate(template_chaincode_spec, args):
 
 
 def createPropsalId():
-	return 'TODO proposal Id'
+    return 'TODO proposal Id'
 
 def createInvokeProposalForBDD(context, ccSpec, chainID, signersCert, Mspid, type):
     import binascii
@@ -67,7 +75,7 @@ def createInvokeProposalForBDD(context, ccSpec, chainID, signersCert, Mspid, typ
     nonce = bootstrap_util.BootstrapHelper.getNonce()
 
     sigHdr = bootstrapHelper.makeSignatureHeader(serializedIdentity.SerializeToString(), nonce)
-    
+
     # Calculate the transaction ID
     tx_id = binascii.hexlify(bootstrap_util.computeCryptoHash(nonce + serializedIdentity.SerializeToString()))
 
@@ -112,15 +120,15 @@ def createSignedTx(user, signed_proposal, proposal_responses):
 
 
 def signProposal(proposal, entity, signersCert):
-	import binascii
-	# Sign the proposal
-	proposalBytes = proposal.SerializeToString()
-	signature = entity.sign(proposalBytes)
-	#Verify the signature
-	entity.verifySignature(signature=signature, signersCert=signersCert, data=proposalBytes)
-	# print("Proposal Bytes signature= \n{0}\n\n".format(binascii.hexlify(bytearray(signature))))
-	signedProposal = proposal_pb2.SignedProposal(proposal_bytes=proposalBytes, signature=signature)
-	return signedProposal
+    import binascii
+    # Sign the proposal
+    proposalBytes = proposal.SerializeToString()
+    signature = entity.sign(proposalBytes)
+    #Verify the signature
+    entity.verifySignature(signature=signature, signersCert=signersCert, data=proposalBytes)
+    # print("Proposal Bytes signature= \n{0}\n\n".format(binascii.hexlify(bytearray(signature))))
+    signedProposal = proposal_pb2.SignedProposal(proposal_bytes=proposalBytes, signature=signature)
+    return signedProposal
 
 
 def createDeploymentChaincodeSpecForBDD(ccDeploymentSpec, chainID):

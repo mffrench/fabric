@@ -1001,10 +1001,7 @@ class OrdererGensisBlockCompositionCallback(compose.CompositionCallback, Callbac
         return "{0}/{1}".format(self.getVolumePath(composition, pathType), self.genesisFileName)
 
     def getOrdererList(self, composition):
-        try:
-            ret = [serviceName for serviceName in composition.getServiceNames() if "orderer" in serviceName]
-        except TypeError:
-            ret = [serviceName for serviceName in composition.getServiceNames() if b"orderer" in serviceName]
+        ret = [serviceName for serviceName in composition.getServiceNames() if "orderer" in serviceName]
         return ret
 
     def composing(self, composition, context):
@@ -1044,10 +1041,7 @@ class PeerCompositionCallback(compose.CompositionCallback, CallbackHelper):
         compose.Composition.RegisterCallbackInContext(context, self)
 
     def getPeerList(self, composition):
-        try:
-            ret = [serviceName for serviceName in composition.getServiceNames() if "peer" in serviceName]
-        except:
-            ret = [serviceName for serviceName in composition.getServiceNames() if "peer" in serviceName.decode()]
+        ret = [serviceName for serviceName in composition.getServiceNames() if "peer" in serviceName]
         return ret
 
     def composing(self, composition, context):

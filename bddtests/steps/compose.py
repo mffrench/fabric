@@ -109,7 +109,7 @@ class Composition:
         try:
             servicesList = [service for service in self.issueCommand(["config", "--services"]).splitlines() if "WARNING" not in service]
         except TypeError:
-            servicesList = [service for service in self.issueCommand(["config", "--services"]).splitlines() if b"WARNING" not in service]
+            servicesList = [service.decode() for service in self.issueCommand(["config", "--services"]).splitlines() if "WARNING" not in service.decode()]
         return servicesList
 
     def up(self, context, force_recreate=True, components=[]):

@@ -19,7 +19,7 @@ import datetime
 try:
     import Queue
 except ImportError:
-    import queue
+    import queue as Queue
 from orderer import ab_pb2
 from common import common_pb2
 
@@ -129,7 +129,10 @@ class DeliverStreamHelper(StreamHelper):
 
     def seekToRange(self, chainID = TEST_CHAIN_ID, start = 'Oldest', end = 'Newest'):
         seekInfo = self.createSeekInfo(start = start, end = end, chainID = chainID)
-        envelope = bootstrap_util.createEnvelopeForMsg(directory=self.directory, chainId=chainID, msg=seekInfo, typeAsString="DELIVER_SEEK_INFO", nodeAdminTuple=self.nodeAdminTuple)
+        try:
+            envelope = bootstrap_util.createEnvelopeForMsg(directory=self.directory, chainId=chainID, msg=seekInfo, typeAsString="DELIVER_SEEK_INFO", nodeAdminTuple=self.nodeAdminTuple)
+        except NameError:
+            envelope = steps.bootstrap_util.createEnvelopeForMsg(directory=self.directory, chainId=chainID, msg=seekInfo, typeAsString="DELIVER_SEEK_INFO", nodeAdminTuple=self.nodeAdminTuple)
         self.sendQueue.put(envelope)
 
     def getBlocks(self):
