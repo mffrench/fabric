@@ -22,6 +22,13 @@ Developers will find these mechanisms useful for both exploratory and verificati
     mkvirtualenv -p /usr/bin/python2.7 behave_venv
 ```
 
+or 
+
+```
+    mkvirtualenv -p /usr/bin/python3.4 behave_venv
+```
+
+
 This will automaticall switch you to the new environment if successful.  In the future, you can switch to the virtual environment using the workon command as shown below.
 
 ```
