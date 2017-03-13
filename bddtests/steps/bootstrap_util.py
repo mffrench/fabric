@@ -912,7 +912,10 @@ class CallbackHelper:
         return "{0}/{1}/localMspConfig".format(self.getVolumePath(composition, pathType), compose_service)
 
     def _getPathAndUserInfo(self, directory , composition, compose_service, nat_discriminator="Signer", pathType=PathType.Local):
-        matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service in nat.user) and (nat_discriminator in nat.user) and ((compose_service in nat.nodeName)))]
+        if isinstance(compose_service, str):
+            matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service in nat.user) and (nat_discriminator in nat.user) and ((compose_service in nat.nodeName)))]
+        else:
+            matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service.decode() in nat.user) and (nat_discriminator in nat.user) and ((compose_service.decode() in nat.nodeName)))]
         assert len(matchingNATs)==1, "Unexpected number of matching NodeAdminTuples: {0}".format(matchingNATs)
         localMspConfigPath = self.getLocalMspConfigPath(composition=composition, compose_service=compose_service,pathType=pathType)
         return (localMspConfigPath, matchingNATs[0].user)

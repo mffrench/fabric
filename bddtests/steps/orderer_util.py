@@ -28,7 +28,7 @@ try:
     import bootstrap_util
 except ImportError:
     import steps.bdd_test_util as bdd_test_util
-    import steps.bootstrap_util as bootstrap_util
+    import steps.bootstrap_util
 
 from grpc.beta import implementations
 from grpc.framework.interfaces.face.face import AbortionError
