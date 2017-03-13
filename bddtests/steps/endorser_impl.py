@@ -69,8 +69,12 @@ def step_impl(context, userName, certAlias, proposalAlias, channelName, ccSpecAl
 
 
         ccDeploymentSpec = endorser_util.createDeploymentSpec(context=context, ccSpec=ccSpec)
-        ccDeploymentSpec.code_package = ""
-        lcChaincodeSpec = endorser_util.createDeploymentChaincodeSpecForBDD(ccDeploymentSpec=ccDeploymentSpec, chainID=str(channelName))
+        try:
+            ccDeploymentSpec.code_package = ""
+            lcChaincodeSpec = endorser_util.createDeploymentChaincodeSpecForBDD(ccDeploymentSpec=ccDeploymentSpec, chainID=str(channelName))
+        except TypeError:
+            ccDeploymentSpec.code_package = b""
+            lcChaincodeSpec = endorser_util.createDeploymentChaincodeSpecForBDD(ccDeploymentSpec=ccDeploymentSpec, chainID=str(channelName))
         # Find the cert using the cert tuple information saved for the user under certAlias
         nodeAdminTuple = user.tags[certAlias]
         signersCert = directory.findCertForNodeAdminTuple(nodeAdminTuple)

@@ -296,8 +296,6 @@ def step_impl(context, userName, proposalResponseName, proposalResponseResultCod
     user = directory.getUser(userName=userName)
     peerToProposalResponseDict = user.tags[proposalResponseName]
     unexpectedResponses = [(composeService,proposalResponse) for composeService, proposalResponse in peerToProposalResponseDict.items() if proposalResponse.response.payload != proposalResponseResultCode]
-    print("ProposalResponse: \n{0}\n".format(proposalResponse))
-    print("")
 
 @given(u'the user "{userName}" creates an peer anchor set "{anchorSetName}" for channel "{channelName}" for orgs')
 def step_impl(context, userName, anchorSetName, channelName):
