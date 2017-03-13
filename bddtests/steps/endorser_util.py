@@ -47,7 +47,13 @@ def getChaincodeSpec(ccType, path, name, args):
 def getChaincodeSpecUsingTemplate(template_chaincode_spec, args):
     # make chaincode spec for chaincode to be deployed
     ccSpec = chaincode_pb2.ChaincodeSpec()
-    input = chaincode_pb2.ChaincodeInput(args = args)
+    try:
+        input = chaincode_pb2.ChaincodeInput(args = args)
+    except TypeError:
+        for i in range(len(args)):
+            if isinstance(args[i], str):
+                args[i] = args[i].encode()
+        input = chaincode_pb2.ChaincodeInput(args = args)
     ccSpec.CopyFrom(template_chaincode_spec)
     ccSpec.input.CopyFrom(input)
     return ccSpec
@@ -103,7 +109,11 @@ def createSignedTx(user, signed_proposal, proposal_responses):
     ccProposalPayload.TransientMap.clear()
 
     endorsements = [p.endorsement for p in proposal_responses]
-    ccEndorsedAction = transaction_pb2.ChaincodeEndorsedAction(proposal_response_payload=proposal_responses[0].payload, endorsements=endorsements)
+    try:
+        ccEndorsedAction = transaction_pb2.ChaincodeEndorsedAction(proposal_response_payload=proposal_responses[0].payload, endorsements=endorsements)
+    except TypeError:
+        list_proposal_responses = list(proposal_responses)
+        ccEndorsedAction = transaction_pb2.ChaincodeEndorsedAction(proposal_response_payload=list_proposal_responses[0].payload, endorsements=endorsements)
 
     ccActionPayload = transaction_pb2.ChaincodeActionPayload(chaincode_proposal_payload=ccProposalPayload.SerializeToString(), action=ccEndorsedAction)
 
