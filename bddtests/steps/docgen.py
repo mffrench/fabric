@@ -312,9 +312,14 @@ class DocumentGenerator:
                 self._writeProtobuf(fileName=fileName, msg=msg)
                 index += 1
         elif self._isDictOfProtobufMessages(tagValue):
-            for key,msg in tagValue.iteritems():
-                (fileName, fileExists) = self.contextHelper.getTmpPathForName("{0}-{1}-{2}".format(user.getUserName(), tagKey, key), extension="protobuf")
-                self._writeProtobuf(fileName=fileName, msg=msg)
+            try:
+                for key,msg in tagValue.iteritems():
+                    (fileName, fileExists) = self.contextHelper.getTmpPathForName("{0}-{1}-{2}".format(user.getUserName(), tagKey, key), extension="protobuf")
+                    self._writeProtobuf(fileName=fileName, msg=msg)
+            except AttributeError:
+                for key,msg in tagValue.items():
+                    (fileName, fileExists) = self.contextHelper.getTmpPathForName("{0}-{1}-{2}".format(user.getUserName(), tagKey, key), extension="protobuf")
+                    self._writeProtobuf(fileName=fileName, msg=msg)
         else:
             self.output.write(env.get_template("html/cli.html").render(command=str(tagValue)))
         return result
