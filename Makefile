@@ -35,7 +35,7 @@
 #   - dist-clean - superset of 'clean' that also removes persistent state
 
 PROJECT_NAME   = hyperledger/fabric
-BASE_VERSION   = 0.7.0
+BASE_VERSION   = 1.0.0
 IS_RELEASE     = false
 
 ifneq ($(IS_RELEASE),true)

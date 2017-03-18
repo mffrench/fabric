@@ -176,6 +176,7 @@ class Entity:
         self.name = name
         # Create a ECDSA key, then a crypto pKey from the DER for usage with cert requests, etc.
         self.ecdsaSigningKey = createECDSAKey()
+        self.rsaSigningKey = createRSAKey()
         self.pKey = crypto.load_privatekey(crypto.FILETYPE_ASN1, self.ecdsaSigningKey.to_der())
         # Signing related ecdsa config
         self.hashfunc = hashlib.sha256
@@ -183,9 +184,15 @@ class Entity:
         self.sigdecode = ecdsa.util.sigdecode_der
 
     def createCertRequest(self, nodeName):
-        req = createCertRequest(self.pKey, CN=nodeName)
+        req = createCertRequest(self.pKey, C="US", ST="North Carolina", L="RTP", O="IBM", CN=nodeName)
         # print("request => {0}".format(crypto.dump_certificate_request(crypto.FILETYPE_PEM, req)))
         return req
+
+    def createTLSCertRequest(self, nodeName):
+        req = createCertRequest(self.rsaSigningKey, C="US", ST="North Carolina", L="RTP", O="IBM", CN=nodeName)
+        # print("request => {0}".format(crypto.dump_certificate_request(crypto.FILETYPE_PEM, req)))
+        return req
+
 
     def computeHash(self, data):
         s = self.hashfunc()
@@ -224,11 +231,14 @@ class Organization(Entity):
 
     def __init__(self, name):
         Entity.__init__(self, name)
-        req = createCertRequest(self.pKey, CN=name)
+        req = createCertRequest(self.pKey, C="US", ST="North Carolina", L="RTP", O="IBM", CN=name)
         numYrs = 1
         self.signedCert = createCertificate(req, (req, self.pKey), 1000, (0, 60 * 60 * 24 * 365 * numYrs), isCA=True)
         # Which networks this organization belongs to
         self.networks = []
+
+    def __repr__(self):
+        return "name:{0}, networks: {1}".format(self.name, self.networks)
 
     def getSelfSignedCert(self):
         return self.signedCert
@@ -247,6 +257,12 @@ class Organization(Entity):
         fabricMSPConfig = mspconfig_pb2.FabricMSPConfig(admins=adminCerts, root_certs=cacerts, name=name)
         mspConfig = mspconfig_pb2.MSPConfig(config=fabricMSPConfig.SerializeToString(), type=0)
         return mspConfig
+
+    def isInNetwork(self, network):
+        for n in self.networks:
+            if str(n)==str(network):
+                return True
+        return False
 
     def getMspPrincipalAsRole(self, mspRoleTypeAsString):
         mspRole = msp_principal_pb2.MSPRole(msp_identifier=self.name, Role=msp_principal_pb2.MSPRole.MSPRoleType.Value(mspRoleTypeAsString))
@@ -323,6 +339,15 @@ class Directory:
         nodeAdminTuple = NodeAdminTuple(user=userName, nodeName=contextName, organization=orgName)
         assert nodeAdminTuple in self.ordererAdminTuples, "Node admin tuple not found for: {0}".format(nodeAdminTuple)
         return nodeAdminTuple
+
+    def getTrustedRootsForPeerNetworkAsPEM(self):
+        pems = [peerOrg.getCertAsPEM() for peerOrg in [org for org in self.getOrganizations().values() if org.isInNetwork(Network.Peer)]]
+        return "".join(pems)
+
+    def getTrustedRootsForOrdererNetworkAsPEM(self):
+        pems = [ordererOrg.getCertAsPEM() for ordererOrg in [org for org in self.getOrganizations().values() if org.isInNetwork(Network.Orderer)]]
+        return "".join(pems)
+
 
     def registerOrdererAdminTuple(self, userName, ordererName, organizationName):
         ' Assign the user as orderer admin'
@@ -637,7 +662,7 @@ def getAnchorPeersConfigGroup(context, nodeAdminTuples):
         for (k,nodeAdminTuple) in group:
             anchorPeer = anchorPeers.anchor_peers.add()
             anchorPeer.host = nodeAdminTuple.nodeName
-            anchorPeer.port = 5611
+            anchorPeer.port = 7051
             # anchorPeer.cert = crypto.dump_certificate(crypto.FILETYPE_PEM,
             #                                           directory.findCertForNodeAdminTuple(nodeAdminTuple))
         config_group.groups[ApplicationGroup].groups[orgName].values[BootstrapHelper.KEY_ANCHOR_PEERS].value=toValue(anchorPeers)
@@ -911,6 +936,9 @@ class CallbackHelper:
     def getLocalMspConfigPath(self, composition, compose_service, pathType=PathType.Local):
         return "{0}/{1}/localMspConfig".format(self.getVolumePath(composition, pathType), compose_service)
 
+    def getLocalTLSConfigPath(self, composition, compose_service, pathType=PathType.Local):
+        return os.path.join(self.getVolumePath(composition, pathType), compose_service, "tls_config")
+
     def _getPathAndUserInfo(self, directory , composition, compose_service, nat_discriminator="Signer", pathType=PathType.Local):
         if isinstance(compose_service, str):
             matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service in nat.user) and (nat_discriminator in nat.user) and ((compose_service in nat.nodeName)))]
@@ -918,16 +946,32 @@ class CallbackHelper:
             matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service.decode() in nat.user) and (nat_discriminator in nat.user) and ((compose_service.decode() in nat.nodeName)))]
         assert len(matchingNATs)==1, "Unexpected number of matching NodeAdminTuples: {0}".format(matchingNATs)
         localMspConfigPath = self.getLocalMspConfigPath(composition=composition, compose_service=compose_service,pathType=pathType)
-        return (localMspConfigPath, matchingNATs[0].user)
+        return (localMspConfigPath, matchingNATs[0])
 
     def getLocalMspConfigPrivateKeyPath(self, directory , composition, compose_service, pathType=PathType.Local):
-        (localMspConfigPath, user) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=compose_service, pathType=pathType)
-        return "{0}/keystore/{1}.pem".format(localMspConfigPath, user)
+        (localMspConfigPath, nodeAdminTuple) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=compose_service, pathType=pathType)
+        return "{0}/keystore/{1}.pem".format(localMspConfigPath, nodeAdminTuple.user)
 
     def getLocalMspConfigPublicCertPath(self, directory , composition, compose_service, pathType=PathType.Local):
-        (localMspConfigPath, user) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=compose_service, pathType=pathType)
-        return "{0}/signcerts/{1}.pem".format(localMspConfigPath, user)
+        (localMspConfigPath, nodeAdminTuple) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=compose_service, pathType=pathType)
+        return "{0}/signcerts/{1}.pem".format(localMspConfigPath, nodeAdminTuple.user)
 
+    def getTLSKeyPaths(self, pnt , composition, compose_service, pathType=PathType.Local):
+        localTLSConfigPath = self.getLocalTLSConfigPath(composition, compose_service, pathType=pathType)
+        certPath = os.path.join(localTLSConfigPath,
+                                "{0}-{1}-{2}-tls.crt".format(pnt.user, pnt.nodeName, pnt.organization))
+        keyPath = os.path.join(localTLSConfigPath,
+                               "{0}-{1}-{2}-tls.key".format(pnt.user, pnt.nodeName, pnt.organization))
+        return (keyPath, certPath)
+
+
+    def getLocalMspConfigRootCertPath(self, directory , composition, compose_service, pathType=PathType.Local):
+        (localMspConfigPath, nodeAdminTuple) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=compose_service, pathType=pathType)
+        return "{0}/cacerts/{1}.pem".format(localMspConfigPath, nodeAdminTuple.organization)
+
+    def _createCryptoMaterial(self,directory , composition, compose_service, network):
+        self._writeMspFiles(directory , composition, compose_service, network)
+        self._writeTLSFiles(directory , composition, compose_service, network)
 
     def _writeMspFiles(self, directory , composition, compose_service, network):
         localMspConfigPath = self.getLocalMspConfigPath(composition, compose_service)
@@ -978,6 +1022,20 @@ class CallbackHelper:
                 with open("{0}/keystore/{1}.pem".format(localMspConfigPath, pnt.user), "wb") as f:
                     f.write(user_pem)
 
+    def _writeTLSFiles(self, directory , composition, compose_service, network):
+        localTLSConfigPath = self.getLocalTLSConfigPath(composition, compose_service)
+        os.makedirs(localTLSConfigPath)
+        # Find the peer signer Tuple for this peer and add to signcerts folder
+        for pnt, cert in [(peerNodeTuple, cert) for peerNodeTuple, cert in directory.ordererAdminTuples.items() if
+                          compose_service in peerNodeTuple.user and "signer" in peerNodeTuple.user.lower()]:
+            user = directory.getUser(userName=pnt.user)
+            userTLSCert = directory.getOrganization(pnt.organization).createCertificate(user.createTLSCertRequest(pnt.nodeName))
+            (keyPath, certPath) = self.getTLSKeyPaths(pnt=pnt, composition=composition, compose_service=compose_service, pathType=PathType.Local)
+            with open(keyPath, 'w') as f:
+                f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, user.rsaSigningKey))
+            with open(certPath, 'w') as f:
+                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, userTLSCert))
+
     def _getMspId(self, compose_service, directory):
         try:
             matchingNATs = [nat for nat in directory.getNamedCtxTuples() if ((compose_service in nat.user) and ("Signer" in nat.user) and ((compose_service in nat.nodeName)))]
@@ -1012,10 +1070,10 @@ class OrdererGensisBlockCompositionCallback(compose.CompositionCallback, Callbac
         directory = getDirectory(context)
 
         for ordererService in self.getOrdererList(composition):
-            self._writeMspFiles(directory=directory,
-                                compose_service=ordererService,
-                                composition=composition,
-                                network=Network.Orderer)
+            self._createCryptoMaterial(directory=directory,
+                                       compose_service=ordererService,
+                                       composition=composition,
+                                       network=Network.Orderer)
 
     def decomposing(self, composition, context):
         'Will remove the orderer volume path folder for the context'
@@ -1029,8 +1087,13 @@ class OrdererGensisBlockCompositionCallback(compose.CompositionCallback, Callbac
             localMspConfigPath = self.getLocalMspConfigPath(composition, ordererService, pathType=PathType.Container)
             env["{0}_ORDERER_GENERAL_LOCALMSPDIR".format(ordererService.upper())] = localMspConfigPath
             env["{0}_ORDERER_GENERAL_LOCALMSPID".format(ordererService.upper())] = self._getMspId(compose_service=ordererService, directory=directory)
-
-
+            # TLS Settings
+            (_, pnt) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=ordererService, pathType=PathType.Container)
+            (keyPath, certPath) = self.getTLSKeyPaths(pnt=pnt, composition=composition, compose_service=ordererService, pathType=PathType.Container)
+            env["{0}_ORDERER_GENERAL_TLS_CERTIFICATE".format(ordererService.upper())] = certPath
+            env["{0}_ORDERER_GENERAL_TLS_PRIVATEKEY".format(ordererService.upper())] = keyPath
+            # env["{0}_ORDERER_GENERAL_TLS_ROOTCAS".format(ordererService.upper())] = "[{0}]".format(self.getLocalMspConfigRootCertPath(
+            #     directory=directory, composition=composition, compose_service=ordererService, pathType=PathType.Container))
 
 class PeerCompositionCallback(compose.CompositionCallback, CallbackHelper):
     'Responsible for setting up Peer nodes upon composition'
@@ -1050,10 +1113,10 @@ class PeerCompositionCallback(compose.CompositionCallback, CallbackHelper):
         directory = getDirectory(context)
 
         for peerService in self.getPeerList(composition):
-            self._writeMspFiles(directory=directory,
-                                compose_service=peerService,
-                                composition=composition,
-                                network=Network.Peer)
+            self._createCryptoMaterial(directory=directory,
+                                       compose_service=peerService,
+                                       composition=composition,
+                                       network=Network.Peer)
 
     def decomposing(self, composition, context):
         'Will remove the orderer volume path folder for the context'
@@ -1068,10 +1131,14 @@ class PeerCompositionCallback(compose.CompositionCallback, CallbackHelper):
             env["{0}_CORE_PEER_LOCALMSPID".format(peerService.upper())] = self._getMspId(compose_service=peerService, directory=directory)
             # TLS Settings
             # env["{0}_CORE_PEER_TLS_ENABLED".format(peerService.upper())] = self._getMspId(compose_service=peerService, directory=directory)
-            env["{0}_CORE_PEER_TLS_CERT_FILE".format(peerService.upper())] = self.getLocalMspConfigPublicCertPath(
+            (_, pnt) = self._getPathAndUserInfo(directory=directory, composition=composition, compose_service=peerService, pathType=PathType.Container)
+            (keyPath, certPath) = self.getTLSKeyPaths(pnt=pnt, composition=composition, compose_service=peerService, pathType=PathType.Container)
+            env["{0}_CORE_PEER_TLS_CERT_FILE".format(peerService.upper())] = certPath
+            env["{0}_CORE_PEER_TLS_KEY_FILE".format(peerService.upper())] = keyPath
+            env["{0}_CORE_PEER_TLS_ROOTCERT_FILE".format(peerService.upper())] = self.getLocalMspConfigRootCertPath(
                 directory=directory, composition=composition, compose_service=peerService, pathType=PathType.Container)
-            env["{0}_CORE_PEER_TLS_KEY_FILE".format(peerService.upper())] = self.getLocalMspConfigPrivateKeyPath(
-                directory=directory, composition=composition, compose_service=peerService, pathType=PathType.Container)
+            env["{0}_CORE_PEER_TLS_SERVERHOSTOVERRIDE".format(peerService.upper())] = peerService
+
 
 def createChainCreationPolicyNames(context, chainCreationPolicyNames, chaindId):
     channel = common_dot_configtx_pb2.ConfigGroup()
@@ -1113,7 +1180,7 @@ def setOrdererBootstrapGenesisBlock(genesisBlock):
     'Responsible for setting the GensisBlock for the Orderer nodes upon composition'
 
 
-def broadcastCreateChannelConfigTx(context, composeService, chainId, configTxEnvelope, user):
+def broadcastCreateChannelConfigTx(context, certAlias, composeService, chainId, configTxEnvelope, user):
     dataFunc = lambda x: configTxEnvelope
     user.broadcastMessages(context=context, numMsgsToBroadcast=1, composeService=composeService, chainID=chainId,
                            dataFunc=dataFunc)
