@@ -37,3 +37,6 @@ build/
 bin/
 bddtests/tmp/
 bddtests/volumes/
+core/chaincode/shim/java/src/main/java/org/hyperledger/protos/
+core/chaincode/shim/java/src/main/java/protos/
+core/chaincode/shim/java/src/main/proto/

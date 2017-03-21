@@ -33,21 +33,21 @@ public class LinkExample extends ChaincodeBase {
 	@Override
 	public String run(ChaincodeStub stub, String function, String[] args) {
 		switch (function) {
-		case "init":
-		case "setMap":
-			mapChaincode = args[0];
-			break;
-		case "put":
-			stub.invokeChaincode(mapChaincode, function, toByteStringList(args), "");
-		default:
-			break;
+			case "init":
+			case "setMap":
+				mapChaincode = args[0];
+				break;
+			case "put":
+				stub.invokeChaincode(mapChaincode, function, toByteStringList(args));
+			default:
+				break;
 		}
 		return null;
 	}
 
 	@Override
 	public String query(ChaincodeStub stub, String function, String[] args) {
-		String tmp = stub.queryChaincode("map", function, toByteStringList(args));
+		String tmp = stub.invokeChaincode("map", function, toByteStringList(args));
 		if (tmp.isEmpty()) tmp = "NULL";
 		else tmp = "\"" + tmp + "\"";
 		tmp += " (queried from map chaincode)";
