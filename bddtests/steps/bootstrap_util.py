@@ -439,7 +439,7 @@ class BootstrapHelper:
 
     @classmethod
     def addSignatureToSignedConfigItem(cls, configUpdateEnvelope, entity, cert):
-        serializedIdentity = identities_pb2.SerializedIdentity(Mspid=entity.name, IdBytes=crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+        serializedIdentity = identities_pb2.SerializedIdentity(Mspid=entity.name, id_bytes=crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
         sigHeader = common_dot_common_pb2.SignatureHeader(creator=serializedIdentity.SerializeToString(),
                                                           nonce=BootstrapHelper.getNonce())
         sigHeaderBytes = sigHeader.SerializeToString()
