@@ -37,7 +37,11 @@ from common import policies_pb2 as common_dot_policies_pb2
 from msp import mspconfig_pb2, msp_principal_pb2, identities_pb2
 from peer import configuration_pb2 as peer_dot_configuration_pb2
 from orderer import configuration_pb2 as orderer_dot_configuration_pb2
-import identities_pb2
+
+try:
+    import identities_pb2
+except ImportError:
+    from msp import identities_pb2
 
 try:
     import orderer_util
@@ -1034,9 +1038,9 @@ class CallbackHelper:
             userTLSCert = directory.getOrganization(pnt.organization).createCertificate(user.createTLSCertRequest(pnt.nodeName))
             (keyPath, certPath) = self.getTLSKeyPaths(pnt=pnt, composition=composition, compose_service=compose_service, pathType=PathType.Local)
             with open(keyPath, 'w') as f:
-                f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, user.rsaSigningKey))
+                f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, user.rsaSigningKey).decode())
             with open(certPath, 'w') as f:
-                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, userTLSCert))
+                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, userTLSCert).decode())
 
     def _getMspId(self, compose_service, directory):
         try:
