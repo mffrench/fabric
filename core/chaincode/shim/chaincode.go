@@ -264,15 +264,13 @@ func chatWithPeer(chaincodename string, stream PeerChaincodeStream, cc Chaincode
 			}
 
 			//keepalive messages are PONGs to the fabric's PINGs
-			if (nsInfo != nil && nsInfo.sendToCC) || (in.Type == pb.ChaincodeMessage_KEEPALIVE) {
-				if in.Type == pb.ChaincodeMessage_KEEPALIVE {
-					chaincodeLogger.Debug("Sending KEEPALIVE response")
-					//ignore any errors, maybe next KEEPALIVE will work
-					handler.serialSendAsync(in, nil)
-				} else {
-					chaincodeLogger.Debugf("[%s]send state message %s", shorttxid(in.Txid), in.Type.String())
-					handler.serialSendAsync(in, errc)
-				}
+			if in.Type == pb.ChaincodeMessage_KEEPALIVE {
+				chaincodeLogger.Debug("Sending KEEPALIVE response")
+				//ignore any errors, maybe next KEEPALIVE will work
+				handler.serialSendAsync(in, nil)
+			} else if nsInfo != nil && nsInfo.sendToCC {
+				chaincodeLogger.Debugf("[%s]send state message %s", shorttxid(in.Txid), in.Type.String())
+				handler.serialSendAsync(in, errc)
 			}
 		}
 	}()
@@ -560,11 +558,20 @@ func (stub *ChaincodeStub) GetArgsSlice() ([]byte, error) {
 	return res, nil
 }
 
-// GetTxTimestamp returns transaction created timestamp, which is currently
-// taken from the peer receiving the transaction. Note that this timestamp
-// may not be the same with the other peers' time.
+// GetTxTimestamp returns the timestamp when the transaction was created. This
+// is taken from the transaction ChannelHeader, so it will be the same across
+// all endorsers.
 func (stub *ChaincodeStub) GetTxTimestamp() (*timestamp.Timestamp, error) {
-	return nil, nil
+	hdr, err := utils.GetHeader(stub.proposal.Header)
+	if err != nil {
+		return nil, err
+	}
+	chdr, err := utils.UnmarshalChannelHeader(hdr.ChannelHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	return chdr.GetTimestamp(), nil
 }
 
 // ------------- ChaincodeEvent API ----------------------
