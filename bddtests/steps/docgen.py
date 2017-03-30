@@ -89,7 +89,7 @@ class DocumentGenerator:
         return result
 
     def _getNetworkGroup(self, serviceName):
-        groups = {"peer" : 1, "orderer" : 2}
+        groups = {"peer" : 1, "orderer" : 2, "kafka" : 7, "zookeeper" : 8, "couchdb" : 9}
         groupId = 0
         try:
             for group, id in groups.iteritems():
