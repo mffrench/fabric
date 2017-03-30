@@ -344,11 +344,11 @@ class Directory:
         return nodeAdminTuple
 
     def getTrustedRootsForPeerNetworkAsPEM(self):
-        pems = [peerOrg.getCertAsPEM() for peerOrg in [org for org in self.getOrganizations().values() if org.isInNetwork(Network.Peer)]]
+        pems = [peerOrg.getCertAsPEM().decode() for peerOrg in [org for org in self.getOrganizations().values() if org.isInNetwork(Network.Peer)]]
         return "".join(pems)
 
     def getTrustedRootsForOrdererNetworkAsPEM(self):
-        pems = [ordererOrg.getCertAsPEM() for ordererOrg in [org for org in self.getOrganizations().values() if org.isInNetwork(Network.Orderer)]]
+        pems = [ordererOrg.getCertAsPEM().decode() for ordererOrg in [org for org in self.getOrganizations().values() if org.isInNetwork(Network.Orderer)]]
         return "".join(pems)
 
 
@@ -439,7 +439,7 @@ class BootstrapHelper:
 
     @classmethod
     def addSignatureToSignedConfigItem(cls, configUpdateEnvelope, entity, cert):
-        serializedIdentity = identities_pb2.SerializedIdentity(Mspid=entity.name, id_bytes=crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+        serializedIdentity = identities_pb2.SerializedIdentity(mspid=entity.name, id_bytes=crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
         sigHeader = common_dot_common_pb2.SignatureHeader(creator=serializedIdentity.SerializeToString(),
                                                           nonce=BootstrapHelper.getNonce())
         sigHeaderBytes = sigHeader.SerializeToString()
