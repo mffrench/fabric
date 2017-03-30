@@ -30,7 +30,7 @@ try:
 except ImportError:
     import steps.bdd_test_util as bdd_test_util
     import steps.bootstrap_util
-    import steps.bdd_grpc_util
+    import steps.bdd_grpc_util as bdd_grpc_util
 
 from grpc.beta import implementations
 from grpc.framework.interfaces.face.face import AbortionError
