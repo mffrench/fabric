@@ -171,7 +171,10 @@ def _createDeploymentSpecAsFile(ccSpec, outputPath):
     fabric_go_root_path = myEnv['GOPATH'] + "/src/github.com/hyperledger/fabric"
     myEnv['CORE_PEER_MSPCONFIGPATH'] = "./../msp/sampleconfig"
     nameArgs = ["-n", ccSpec.chaincode_id.name]
-    ctorArgs = ["-c", json.dumps({'Args' : [item for item in ccSpec.input.args]})]
+    try:
+        ctorArgs = ["-c", json.dumps({'Args' : [item for item in ccSpec.input.args]})]
+    except TypeError:
+        ctorArgs = ["-c", json.dumps({'Args' : [item.decode() for item in ccSpec.input.args]})]
     pathArgs = ["-p", ccSpec.chaincode_id.path]
     versionArgs = ["-v", ccSpec.chaincode_id.version]
     output, error, returncode = \
