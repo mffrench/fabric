@@ -203,10 +203,12 @@ build/image/javaenv/payload:    build/javashim.tar.bz2 \
 				build/protos.tar.bz2 \
 				settings.gradle
 build/image/peer/payload:       build/docker/bin/peer \
+				build/bin/configtxgen \
 				peer/core.yaml \
 				build/msp-sampleconfig.tar.bz2 \
 				common/configtx/tool/configtx.yaml
 build/image/orderer/payload:    build/docker/bin/orderer \
+				build/bin/configtxgen \
 				build/msp-sampleconfig.tar.bz2 \
 				orderer/orderer.yaml \
 				common/configtx/tool/configtx.yaml
