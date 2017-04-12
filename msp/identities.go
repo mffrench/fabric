@@ -71,12 +71,27 @@ func (id *identity) Validate() error {
 }
 
 // GetOrganizationalUnits returns the OU for this instance
-func (id *identity) GetOrganizationalUnits() []string {
+func (id *identity) GetOrganizationalUnits() []msp.FabricOUIdentifier {
 	if id.cert == nil {
 		return nil
 	}
 
-	return id.cert.Subject.OrganizationalUnit
+	cid, err := id.msp.getCertificationChainIdentifier(id)
+	if err != nil {
+		mspLogger.Errorf("Failed getting certification chain identifier for [%v]: [%s]", id, err)
+
+		return nil
+	}
+
+	res := []msp.FabricOUIdentifier{}
+	for _, unit := range id.cert.Subject.OrganizationalUnit {
+		res = append(res, msp.FabricOUIdentifier{
+			OrganizationalUnitIdentifier: unit,
+			CertifiersIdentifier:         cid,
+		})
+	}
+
+	return res
 }
 
 // NewSerializedIdentity returns a serialized identity
@@ -101,7 +116,7 @@ func (id *identity) Verify(msg []byte, sig []byte) error {
 	// mspLogger.Infof("Verifying signature")
 
 	// Compute Hash
-	digest, err := id.msp.bccsp.Hash(msg, &bccsp.SHAOpts{})
+	digest, err := id.msp.bccsp.Hash(msg, &bccsp.SHA256Opts{})
 	if err != nil {
 		return fmt.Errorf("Failed computing digest [%s]", err)
 	}
@@ -170,7 +185,7 @@ func (id *signingidentity) Sign(msg []byte) ([]byte, error) {
 	//mspLogger.Infof("Signing message")
 
 	// Compute Hash
-	digest, err := id.msp.bccsp.Hash(msg, &bccsp.SHAOpts{})
+	digest, err := id.msp.bccsp.Hash(msg, &bccsp.SHA256Opts{})
 	if err != nil {
 		return nil, fmt.Errorf("Failed computing digest [%s]", err)
 	}

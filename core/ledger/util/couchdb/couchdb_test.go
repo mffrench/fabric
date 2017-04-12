@@ -35,6 +35,9 @@ var badConnectURL = "couchdb:5990"
 var username = ""
 var password = ""
 
+const updateDocumentConflictError = "conflict"
+const updateDocumentConflictReason = "Document update conflict."
+
 func cleanup(database string) error {
 	//create a new connection
 	couchInstance, err := CreateCouchInstance(connectURL, username, password)
@@ -88,7 +91,7 @@ func TestDBBadConnectionDef(t *testing.T) {
 
 func TestDBCreateSaveWithoutRevision(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbcreatesavewithoutrevision"
 		err := cleanup(database)
@@ -114,7 +117,7 @@ func TestDBCreateSaveWithoutRevision(t *testing.T) {
 
 func TestDBCreateEnsureFullCommit(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbensurefullcommit"
 		err := cleanup(database)
@@ -142,9 +145,10 @@ func TestDBCreateEnsureFullCommit(t *testing.T) {
 		}
 	}
 }
+
 func TestDBBadDatabaseName(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		//create a new instance and database object using a valid database name mixed case
 		couchInstance, err := CreateCouchInstance(connectURL, username, password)
@@ -183,7 +187,7 @@ func TestDBBadConnection(t *testing.T) {
 	// TODO Re-enable once configurable retry logic is introduced
 	t.Skip()
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		//create a new instance and database object
 		_, err := CreateCouchInstance(badConnectURL, username, password)
@@ -193,7 +197,7 @@ func TestDBBadConnection(t *testing.T) {
 
 func TestDBCreateDatabaseAndPersist(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbcreatedatabaseandpersist"
 		err := cleanup(database)
@@ -282,7 +286,7 @@ func TestDBCreateDatabaseAndPersist(t *testing.T) {
 
 func TestDBBadJSON(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbbadjson"
 		err := cleanup(database)
@@ -380,7 +384,7 @@ func TestPrefixScan(t *testing.T) {
 
 func TestDBSaveAttachment(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbsaveattachment"
 		err := cleanup(database)
@@ -391,12 +395,12 @@ func TestDBSaveAttachment(t *testing.T) {
 
 			byteText := []byte(`This is a test document.  This is only a test`)
 
-			attachment := Attachment{}
+			attachment := &Attachment{}
 			attachment.AttachmentBytes = byteText
 			attachment.ContentType = "text/plain"
 			attachment.Name = "valueBytes"
 
-			attachments := []Attachment{}
+			attachments := []*Attachment{}
 			attachments = append(attachments, attachment)
 
 			//create a new instance and database object
@@ -424,7 +428,7 @@ func TestDBSaveAttachment(t *testing.T) {
 
 func TestDBDeleteDocument(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbdeletedocument"
 		err := cleanup(database)
@@ -462,7 +466,7 @@ func TestDBDeleteDocument(t *testing.T) {
 
 func TestDBDeleteNonExistingDocument(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		database := "testdbdeletenonexistingdocument"
 		err := cleanup(database)
@@ -504,7 +508,7 @@ func TestCouchDBVersion(t *testing.T) {
 
 func TestRichQuery(t *testing.T) {
 
-	if ledgerconfig.IsCouchDBEnabled() == true {
+	if ledgerconfig.IsCouchDBEnabled() {
 
 		byteJSON01 := []byte(`{"asset_name":"marble01","color":"blue","size":1,"owner":"jerry"}`)
 		byteJSON02 := []byte(`{"asset_name":"marble02","color":"red","size":2,"owner":"tom"}`)
@@ -523,85 +527,85 @@ func TestRichQuery(t *testing.T) {
 		attachment1.AttachmentBytes = []byte(`marble01 - test attachment`)
 		attachment1.ContentType = "application/octet-stream"
 		attachment1.Name = "data"
-		attachments1 := []Attachment{}
-		attachments1 = append(attachments1, *attachment1)
+		attachments1 := []*Attachment{}
+		attachments1 = append(attachments1, attachment1)
 
 		attachment2 := &Attachment{}
 		attachment2.AttachmentBytes = []byte(`marble02 - test attachment`)
 		attachment2.ContentType = "application/octet-stream"
 		attachment2.Name = "data"
-		attachments2 := []Attachment{}
-		attachments2 = append(attachments2, *attachment2)
+		attachments2 := []*Attachment{}
+		attachments2 = append(attachments2, attachment2)
 
 		attachment3 := &Attachment{}
 		attachment3.AttachmentBytes = []byte(`marble03 - test attachment`)
 		attachment3.ContentType = "application/octet-stream"
 		attachment3.Name = "data"
-		attachments3 := []Attachment{}
-		attachments3 = append(attachments3, *attachment3)
+		attachments3 := []*Attachment{}
+		attachments3 = append(attachments3, attachment3)
 
 		attachment4 := &Attachment{}
 		attachment4.AttachmentBytes = []byte(`marble04 - test attachment`)
 		attachment4.ContentType = "application/octet-stream"
 		attachment4.Name = "data"
-		attachments4 := []Attachment{}
-		attachments4 = append(attachments4, *attachment4)
+		attachments4 := []*Attachment{}
+		attachments4 = append(attachments4, attachment4)
 
 		attachment5 := &Attachment{}
 		attachment5.AttachmentBytes = []byte(`marble05 - test attachment`)
 		attachment5.ContentType = "application/octet-stream"
 		attachment5.Name = "data"
-		attachments5 := []Attachment{}
-		attachments5 = append(attachments5, *attachment5)
+		attachments5 := []*Attachment{}
+		attachments5 = append(attachments5, attachment5)
 
 		attachment6 := &Attachment{}
 		attachment6.AttachmentBytes = []byte(`marble06 - test attachment`)
 		attachment6.ContentType = "application/octet-stream"
 		attachment6.Name = "data"
-		attachments6 := []Attachment{}
-		attachments6 = append(attachments6, *attachment6)
+		attachments6 := []*Attachment{}
+		attachments6 = append(attachments6, attachment6)
 
 		attachment7 := &Attachment{}
 		attachment7.AttachmentBytes = []byte(`marble07 - test attachment`)
 		attachment7.ContentType = "application/octet-stream"
 		attachment7.Name = "data"
-		attachments7 := []Attachment{}
-		attachments7 = append(attachments7, *attachment7)
+		attachments7 := []*Attachment{}
+		attachments7 = append(attachments7, attachment7)
 
 		attachment8 := &Attachment{}
 		attachment8.AttachmentBytes = []byte(`marble08 - test attachment`)
 		attachment8.ContentType = "application/octet-stream"
 		attachment7.Name = "data"
-		attachments8 := []Attachment{}
-		attachments8 = append(attachments8, *attachment8)
+		attachments8 := []*Attachment{}
+		attachments8 = append(attachments8, attachment8)
 
 		attachment9 := &Attachment{}
 		attachment9.AttachmentBytes = []byte(`marble09 - test attachment`)
 		attachment9.ContentType = "application/octet-stream"
 		attachment9.Name = "data"
-		attachments9 := []Attachment{}
-		attachments9 = append(attachments9, *attachment9)
+		attachments9 := []*Attachment{}
+		attachments9 = append(attachments9, attachment9)
 
 		attachment10 := &Attachment{}
 		attachment10.AttachmentBytes = []byte(`marble10 - test attachment`)
 		attachment10.ContentType = "application/octet-stream"
 		attachment10.Name = "data"
-		attachments10 := []Attachment{}
-		attachments10 = append(attachments10, *attachment10)
+		attachments10 := []*Attachment{}
+		attachments10 = append(attachments10, attachment10)
 
 		attachment11 := &Attachment{}
 		attachment11.AttachmentBytes = []byte(`marble11 - test attachment`)
 		attachment11.ContentType = "application/octet-stream"
 		attachment11.Name = "data"
-		attachments11 := []Attachment{}
-		attachments11 = append(attachments11, *attachment11)
+		attachments11 := []*Attachment{}
+		attachments11 = append(attachments11, attachment11)
 
 		attachment12 := &Attachment{}
 		attachment12.AttachmentBytes = []byte(`marble12 - test attachment`)
 		attachment12.ContentType = "application/octet-stream"
 		attachment12.Name = "data"
-		attachments12 := []Attachment{}
-		attachments12 = append(attachments12, *attachment12)
+		attachments12 := []*Attachment{}
+		attachments12 = append(attachments12, attachment12)
 
 		database := "testrichquery"
 		err := cleanup(database)
@@ -771,4 +775,233 @@ func TestRichQuery(t *testing.T) {
 
 		}
 	}
+}
+
+func TestBatchBatchOperations(t *testing.T) {
+
+	if ledgerconfig.IsCouchDBEnabled() {
+
+		byteJSON01 := []byte(`{"_id":"marble01","asset_name":"marble01","color":"blue","size":"1","owner":"jerry"}`)
+		byteJSON02 := []byte(`{"_id":"marble02","asset_name":"marble02","color":"red","size":"2","owner":"tom"}`)
+		byteJSON03 := []byte(`{"_id":"marble03","asset_name":"marble03","color":"green","size":"3","owner":"jerry"}`)
+		byteJSON04 := []byte(`{"_id":"marble04","asset_name":"marble04","color":"purple","size":"4","owner":"tom"}`)
+		byteJSON05 := []byte(`{"_id":"marble05","asset_name":"marble05","color":"blue","size":"5","owner":"jerry"}`)
+
+		attachment1 := &Attachment{}
+		attachment1.AttachmentBytes = []byte(`marble01 - test attachment`)
+		attachment1.ContentType = "application/octet-stream"
+		attachment1.Name = "data"
+		attachments1 := []*Attachment{}
+		attachments1 = append(attachments1, attachment1)
+
+		attachment2 := &Attachment{}
+		attachment2.AttachmentBytes = []byte(`marble02 - test attachment`)
+		attachment2.ContentType = "application/octet-stream"
+		attachment2.Name = "data"
+		attachments2 := []*Attachment{}
+		attachments2 = append(attachments2, attachment2)
+
+		attachment3 := &Attachment{}
+		attachment3.AttachmentBytes = []byte(`marble03 - test attachment`)
+		attachment3.ContentType = "application/octet-stream"
+		attachment3.Name = "data"
+		attachments3 := []*Attachment{}
+		attachments3 = append(attachments3, attachment3)
+
+		attachment4 := &Attachment{}
+		attachment4.AttachmentBytes = []byte(`marble04 - test attachment`)
+		attachment4.ContentType = "application/octet-stream"
+		attachment4.Name = "data"
+		attachments4 := []*Attachment{}
+		attachments4 = append(attachments4, attachment4)
+
+		attachment5 := &Attachment{}
+		attachment5.AttachmentBytes = []byte(`marble05 - test attachment`)
+		attachment5.ContentType = "application/octet-stream"
+		attachment5.Name = "data"
+		attachments5 := []*Attachment{}
+		attachments5 = append(attachments5, attachment5)
+
+		database := "testbatch"
+		err := cleanup(database)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when trying to cleanup  Error: %s", err))
+		defer cleanup(database)
+
+		//create a new instance and database object   --------------------------------------------------------
+		couchInstance, err := CreateCouchInstance(connectURL, username, password)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when trying to create couch instance"))
+		db := CouchDatabase{CouchInstance: *couchInstance, DBName: database}
+
+		//create a new database
+		_, errdb := db.CreateDatabaseIfNotExist()
+		testutil.AssertNoError(t, errdb, fmt.Sprintf("Error when trying to create database"))
+
+		batchUpdateDocs := []*CouchDoc{}
+
+		value1 := &CouchDoc{JSONValue: byteJSON01, Attachments: attachments1}
+		value2 := &CouchDoc{JSONValue: byteJSON02, Attachments: attachments2}
+		value3 := &CouchDoc{JSONValue: byteJSON03, Attachments: attachments3}
+		value4 := &CouchDoc{JSONValue: byteJSON04, Attachments: attachments4}
+		value5 := &CouchDoc{JSONValue: byteJSON05, Attachments: attachments5}
+
+		batchUpdateDocs = append(batchUpdateDocs, value1)
+		batchUpdateDocs = append(batchUpdateDocs, value2)
+		batchUpdateDocs = append(batchUpdateDocs, value3)
+		batchUpdateDocs = append(batchUpdateDocs, value4)
+		batchUpdateDocs = append(batchUpdateDocs, value5)
+
+		batchUpdateResp, err := db.BatchUpdateDocuments(batchUpdateDocs)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when attempting to update a batch of documents"))
+
+		//check to make sure each batch update response was successful
+		for _, updateDoc := range batchUpdateResp {
+			testutil.AssertEquals(t, updateDoc.Ok, true)
+		}
+
+		//----------------------------------------------
+		//Test Retrieve JSON
+		dbGetResp, _, geterr := db.ReadDoc("marble01")
+		testutil.AssertNoError(t, geterr, fmt.Sprintf("Error when attempting read a document"))
+
+		assetResp := &Asset{}
+		geterr = json.Unmarshal(dbGetResp.JSONValue, &assetResp)
+		testutil.AssertNoError(t, geterr, fmt.Sprintf("Error when trying to retrieve a document"))
+		//Verify the owner retrieved matches
+		testutil.AssertEquals(t, assetResp.Owner, "jerry")
+
+		//----------------------------------------------
+		//Test retrieve binary
+		dbGetResp, _, geterr = db.ReadDoc("marble03")
+		testutil.AssertNoError(t, geterr, fmt.Sprintf("Error when attempting read a document"))
+		//Retrieve the attachments
+		attachments := dbGetResp.Attachments
+		//Only one was saved, so take the first
+		retrievedAttachment := attachments[0]
+		//Verify the text matches
+		testutil.AssertEquals(t, attachment3.AttachmentBytes, retrievedAttachment.AttachmentBytes)
+		//----------------------------------------------
+		//Test Bad Updates
+		batchUpdateDocs = []*CouchDoc{}
+		batchUpdateDocs = append(batchUpdateDocs, value1)
+		batchUpdateDocs = append(batchUpdateDocs, value2)
+		batchUpdateResp, err = db.BatchUpdateDocuments(batchUpdateDocs)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when attempting to update a batch of documents"))
+		//No revision was provided, so these two updates should fail
+		//Verify that the "Ok" field is returned as false
+		for _, updateDoc := range batchUpdateResp {
+			testutil.AssertEquals(t, updateDoc.Ok, false)
+			testutil.AssertEquals(t, updateDoc.Error, updateDocumentConflictError)
+			testutil.AssertEquals(t, updateDoc.Reason, updateDocumentConflictReason)
+		}
+
+		//----------------------------------------------
+		//Test Batch Retrieve Keys and Update
+
+		var keys []string
+
+		keys = append(keys, "marble01")
+		keys = append(keys, "marble03")
+
+		batchRevs, err := db.BatchRetrieveIDRevision(keys)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when attempting retrieve revisions"))
+
+		batchUpdateDocs = []*CouchDoc{}
+
+		//iterate through the revision docs
+		for _, revdoc := range batchRevs {
+			if revdoc.ID == "marble01" {
+				//update the json with the rev and add to the batch
+				marble01Doc := addRevisionAndDeleteStatus(revdoc.Rev, byteJSON01, false)
+				batchUpdateDocs = append(batchUpdateDocs, &CouchDoc{JSONValue: marble01Doc, Attachments: attachments1})
+			}
+
+			if revdoc.ID == "marble03" {
+				//update the json with the rev and add to the batch
+				marble03Doc := addRevisionAndDeleteStatus(revdoc.Rev, byteJSON03, false)
+				batchUpdateDocs = append(batchUpdateDocs, &CouchDoc{JSONValue: marble03Doc, Attachments: attachments3})
+			}
+		}
+
+		//Update couchdb with the batch
+		batchUpdateResp, err = db.BatchUpdateDocuments(batchUpdateDocs)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when attempting to update a batch of documents"))
+		//check to make sure each batch update response was successful
+		for _, updateDoc := range batchUpdateResp {
+			testutil.AssertEquals(t, updateDoc.Ok, true)
+		}
+
+		//----------------------------------------------
+		//Test Batch Delete
+
+		keys = []string{}
+
+		keys = append(keys, "marble02")
+		keys = append(keys, "marble04")
+
+		batchRevs, err = db.BatchRetrieveIDRevision(keys)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when attempting retrieve revisions"))
+
+		batchUpdateDocs = []*CouchDoc{}
+
+		//iterate through the revision docs
+		for _, revdoc := range batchRevs {
+			if revdoc.ID == "marble02" {
+				//update the json with the rev and add to the batch
+				marble02Doc := addRevisionAndDeleteStatus(revdoc.Rev, byteJSON02, true)
+				batchUpdateDocs = append(batchUpdateDocs, &CouchDoc{JSONValue: marble02Doc, Attachments: attachments1})
+			}
+			if revdoc.ID == "marble04" {
+				//update the json with the rev and add to the batch
+				marble04Doc := addRevisionAndDeleteStatus(revdoc.Rev, byteJSON04, true)
+				batchUpdateDocs = append(batchUpdateDocs, &CouchDoc{JSONValue: marble04Doc, Attachments: attachments3})
+			}
+		}
+
+		//Update couchdb with the batch
+		batchUpdateResp, err = db.BatchUpdateDocuments(batchUpdateDocs)
+		testutil.AssertNoError(t, err, fmt.Sprintf("Error when attempting to update a batch of documents"))
+
+		//check to make sure each batch update response was successful
+		for _, updateDoc := range batchUpdateResp {
+			testutil.AssertEquals(t, updateDoc.Ok, true)
+		}
+
+		//Retrieve the test document
+		dbGetResp, _, geterr = db.ReadDoc("marble02")
+		testutil.AssertNoError(t, geterr, fmt.Sprintf("Error when trying to retrieve a document"))
+
+		//assert the value was deleted
+		testutil.AssertNil(t, dbGetResp)
+
+		//Retrieve the test document
+		dbGetResp, _, geterr = db.ReadDoc("marble04")
+		testutil.AssertNoError(t, geterr, fmt.Sprintf("Error when trying to retrieve a document"))
+
+		//assert the value was deleted
+		testutil.AssertNil(t, dbGetResp)
+	}
+}
+
+//addRevisionAndDeleteStatus adds keys for version and chaincodeID to the JSON value
+func addRevisionAndDeleteStatus(revision string, value []byte, deleted bool) []byte {
+
+	//create a version mapping
+	jsonMap := make(map[string]interface{})
+
+	json.Unmarshal(value, &jsonMap)
+
+	//add the revision
+	if revision != "" {
+		jsonMap["_rev"] = revision
+	}
+
+	//If this record is to be deleted, set the "_deleted" property to true
+	if deleted {
+		jsonMap["_deleted"] = true
+	}
+	//marshal the data to a byte array
+	returnJSON, _ := json.Marshal(jsonMap)
+
+	return returnJSON
+
 }

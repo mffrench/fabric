@@ -256,14 +256,21 @@ func TestGetOU(t *testing.T) {
 		return
 	}
 
-	assert.Equal(t, "COP", id.GetOrganizationalUnits()[0])
+	assert.Equal(t, "COP", id.GetOrganizationalUnits()[0].OrganizationalUnitIdentifier)
 }
 
 func TestOUPolicyPrincipal(t *testing.T) {
 	id, err := localMsp.GetDefaultSigningIdentity()
 	assert.NoError(t, err)
 
-	ou := &msp.OrganizationUnit{OrganizationalUnitIdentifier: "COP", MspIdentifier: "DEFAULT"}
+	cid, err := localMsp.(*bccspmsp).getCertificationChainIdentifier(id.GetPublicVersion())
+	assert.NoError(t, err)
+
+	ou := &msp.OrganizationUnit{
+		OrganizationalUnitIdentifier: "COP",
+		MspIdentifier:                "DEFAULT",
+		CertifiersIdentifier:         cid,
+	}
 	bytes, err := proto.Marshal(ou)
 	assert.NoError(t, err)
 
@@ -274,6 +281,43 @@ func TestOUPolicyPrincipal(t *testing.T) {
 
 	err = id.SatisfiesPrincipal(principal)
 	assert.NoError(t, err)
+}
+
+func TestOUPolicyPrincipalBadPath(t *testing.T) {
+	id, err := localMsp.GetDefaultSigningIdentity()
+	assert.NoError(t, err)
+
+	ou := &msp.OrganizationUnit{
+		OrganizationalUnitIdentifier: "COP",
+		MspIdentifier:                "DEFAULT",
+		CertifiersIdentifier:         nil,
+	}
+	bytes, err := proto.Marshal(ou)
+	assert.NoError(t, err)
+
+	principal := &msp.MSPPrincipal{
+		PrincipalClassification: msp.MSPPrincipal_ORGANIZATION_UNIT,
+		Principal:               bytes,
+	}
+
+	err = id.SatisfiesPrincipal(principal)
+	assert.Error(t, err)
+
+	ou = &msp.OrganizationUnit{
+		OrganizationalUnitIdentifier: "COP",
+		MspIdentifier:                "DEFAULT",
+		CertifiersIdentifier:         []byte{0, 1, 2, 3, 4},
+	}
+	bytes, err = proto.Marshal(ou)
+	assert.NoError(t, err)
+
+	principal = &msp.MSPPrincipal{
+		PrincipalClassification: msp.MSPPrincipal_ORGANIZATION_UNIT,
+		Principal:               bytes,
+	}
+
+	err = id.SatisfiesPrincipal(principal)
+	assert.Error(t, err)
 }
 
 func TestAdminPolicyPrincipal(t *testing.T) {
@@ -304,6 +348,57 @@ func TestAdminPolicyPrincipalFails(t *testing.T) {
 
 	// remove the admin so validation will fail
 	localMsp.(*bccspmsp).admins = make([]Identity, 0)
+
+	err = id.SatisfiesPrincipal(principal)
+	assert.Error(t, err)
+}
+
+func TestIdentityPolicyPrincipal(t *testing.T) {
+	id, err := localMsp.GetDefaultSigningIdentity()
+	assert.NoError(t, err)
+
+	idSerialized, err := id.Serialize()
+	assert.NoError(t, err)
+
+	principal := &msp.MSPPrincipal{
+		PrincipalClassification: msp.MSPPrincipal_IDENTITY,
+		Principal:               idSerialized}
+
+	err = id.SatisfiesPrincipal(principal)
+	assert.NoError(t, err)
+}
+
+const othercert = `-----BEGIN CERTIFICATE-----
+MIIDAzCCAqigAwIBAgIBAjAKBggqhkjOPQQDAjBsMQswCQYDVQQGEwJHQjEQMA4G
+A1UECAwHRW5nbGFuZDEOMAwGA1UECgwFQmFyMTkxDjAMBgNVBAsMBUJhcjE5MQ4w
+DAYDVQQDDAVCYXIxOTEbMBkGCSqGSIb3DQEJARYMQmFyMTktY2xpZW50MB4XDTE3
+MDIwOTE2MDcxMFoXDTE4MDIxOTE2MDcxMFowfDELMAkGA1UEBhMCR0IxEDAOBgNV
+BAgMB0VuZ2xhbmQxEDAOBgNVBAcMB0lwc3dpY2gxDjAMBgNVBAoMBUJhcjE5MQ4w
+DAYDVQQLDAVCYXIxOTEOMAwGA1UEAwwFQmFyMTkxGTAXBgkqhkiG9w0BCQEWCkJh
+cjE5LXBlZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQlRSnAyD+ND6qmaRV7
+AS/BPJKX5dZt3gBe1v/RewOpc1zJeXQNWACAk0ae3mv5u9l0HxI6TXJIAQSwJACu
+Rqsyo4IBKTCCASUwCQYDVR0TBAIwADARBglghkgBhvhCAQEEBAMCBkAwMwYJYIZI
+AYb4QgENBCYWJE9wZW5TU0wgR2VuZXJhdGVkIFNlcnZlciBDZXJ0aWZpY2F0ZTAd
+BgNVHQ4EFgQUwHzbLJQMaWd1cpHdkSaEFxdKB1owgYsGA1UdIwSBgzCBgIAUYxFe
++cXOD5iQ223bZNdOuKCRiTKhZaRjMGExCzAJBgNVBAYTAkdCMRAwDgYDVQQIDAdF
+bmdsYW5kMRAwDgYDVQQHDAdJcHN3aWNoMQ4wDAYDVQQKDAVCYXIxOTEOMAwGA1UE
+CwwFQmFyMTkxDjAMBgNVBAMMBUJhcjE5ggEBMA4GA1UdDwEB/wQEAwIFoDATBgNV
+HSUEDDAKBggrBgEFBQcDATAKBggqhkjOPQQDAgNJADBGAiEAuMq65lOaie4705Ol
+Ow52DjbaO2YuIxK2auBCqNIu0gECIQCDoKdUQ/sa+9Ah1mzneE6iz/f/YFVWo4EP
+HeamPGiDTQ==
+-----END CERTIFICATE-----
+`
+
+func TestIdentityPolicyPrincipalFails(t *testing.T) {
+	id, err := localMsp.GetDefaultSigningIdentity()
+	assert.NoError(t, err)
+
+	sid, err := NewSerializedIdentity("DEFAULT", []byte(othercert))
+	assert.NoError(t, err)
+
+	principal := &msp.MSPPrincipal{
+		PrincipalClassification: msp.MSPPrincipal_IDENTITY,
+		Principal:               sid}
 
 	err = id.SatisfiesPrincipal(principal)
 	assert.Error(t, err)
