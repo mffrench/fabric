@@ -124,6 +124,7 @@ func NewCommInstanceWithServer(port int, idMapper identity.Mapper, peerIdentity 
 
 // NewCommInstance creates a new comm instance that binds itself to the given gRPC server
 func NewCommInstance(s *grpc.Server, cert *tls.Certificate, idStore identity.Mapper, peerIdentity api.PeerIdentityType, dialOpts ...grpc.DialOption) (Comm, error) {
+	dialOpts = append(dialOpts, grpc.WithTimeout(util.GetDurationOrDefault("peer.gossip.dialTimeout", defDialTimeout)))
 	commInst, err := NewCommInstanceWithServer(-1, idStore, peerIdentity, dialOpts...)
 	if err != nil {
 		return nil, err
@@ -217,6 +218,7 @@ func (c *commImpl) createConnection(endpoint string, expectedPKIID common.PKIidT
 			conn.handler = h
 			return conn, nil
 		}
+		c.logger.Warning("Authentication failed:", err)
 	}
 	cc.Close()
 	return nil, err
@@ -320,6 +322,7 @@ func (c *commImpl) Handshake(remotePeer *RemotePeer) (api.PeerIdentityType, erro
 	}
 	connInfo, err := c.authenticateRemotePeer(stream)
 	if err != nil {
+		c.logger.Warning("Authentication failed:", err)
 		return nil, err
 	}
 	if len(remotePeer.PKIID) > 0 && !bytes.Equal(connInfo.ID, remotePeer.PKIID) {
@@ -344,7 +347,6 @@ func (c *commImpl) Accept(acceptor common.MessageAcceptor) <-chan proto.Received
 	go func() {
 		defer c.logger.Debug("Exiting Accept() loop")
 		defer func() {
-			c.logger.Warning("Recovered")
 			recover()
 		}()
 
@@ -516,7 +518,7 @@ func (c *commImpl) GossipStream(stream proto.Gossip_GossipStreamServer) error {
 	}
 	connInfo, err := c.authenticateRemotePeer(stream)
 	if err != nil {
-		c.logger.Error("Authentication failed")
+		c.logger.Error("Authentication failed:", err)
 		return err
 	}
 	c.logger.Debug("Servicing", extractRemoteAddress(stream))

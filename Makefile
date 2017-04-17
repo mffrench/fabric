@@ -78,11 +78,14 @@ PROTOS = $(shell git ls-files *.proto | grep -v vendor)
 MSP_SAMPLECONFIG = $(shell git ls-files msp/sampleconfig/*)
 PROJECT_FILES = $(shell git ls-files)
 IMAGES = peer orderer ccenv javaenv buildenv testenv zookeeper kafka couchdb
+RELEASE_PLATFORMS = windows-amd64 darwin-amd64 linux-amd64 linux-ppc64le linux-s390x
+RELEASE_PKGS = configtxgen cryptogen
 
 pkgmap.configtxgen    := $(PKGNAME)/common/configtx/tool/configtxgen
 pkgmap.peer           := $(PKGNAME)/peer
 pkgmap.orderer        := $(PKGNAME)/orderer
 pkgmap.block-listener := $(PKGNAME)/examples/events/block-listener
+pkgmap.cryptogen      := $(PKGNAME)/common/tools/cryptogen
 
 include docker-env.mk
 
@@ -279,6 +282,57 @@ build/%.tar.bz2:
 	@echo "Creating $@"
 	@tar -jc $^ > $@
 
+# builds release packages for the host platform
+release: $(patsubst %,release/%, $(shell go env GOOS)-$(shell go env GOARCH))
+
+# builds release packages for all target platforms
+release-all: $(patsubst %,release/%, $(RELEASE_PLATFORMS))
+
+release/windows-amd64: GOOS=windows
+release/windows-amd64: GO_TAGS+= nopkcs11
+release/windows-amd64: $(patsubst %,release/windows-amd64/bin/%, $(RELEASE_PKGS)) release/windows-amd64/install
+
+release/darwin-amd64: GOOS=darwin
+release/darwin-amd64: GO_TAGS+= nopkcs11
+release/darwin-amd64: $(patsubst %,release/darwin-amd64/bin/%, $(RELEASE_PKGS)) release/darwin-amd64/install
+
+release/linux-amd64: GOOS=linux
+release/linux-amd64: GO_TAGS+= nopkcs11
+release/linux-amd64: $(patsubst %,release/linux-amd64/bin/%, $(RELEASE_PKGS)) release/linux-amd64/install
+
+release/%-amd64: DOCKER_ARCH=x86_64
+release/%-amd64: GOARCH=amd64
+release/linux-%: GOOS=linux
+
+release/linux-ppc64le: GOARCH=ppc64le
+release/linux-ppc64le: DOCKER_ARCH=ppc64le
+release/linux-ppc64le: GO_TAGS+= nopkcs11
+release/linux-ppc64le: $(patsubst %,release/linux-ppc64le/bin/%, $(RELEASE_PKGS)) release/linux-ppc64le/install
+
+release/linux-s390x: GOARCH=s390x
+release/linux-s390x: DOCKER_ARCH=s390x
+release/linux-s390x: GO_TAGS+= nopkcs11
+release/linux-s390x: $(patsubst %,release/linux-s390x/bin/%, $(RELEASE_PKGS)) release/linux-s390x/install
+
+release/%/bin/configtxgen: $(PROJECT_FILES)
+	@echo "Building $@ for $(GOOS)-$(GOARCH)"
+	mkdir -p $(@D)
+	$(CGO_FLAGS) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(abspath $@) -tags "$(GO_TAGS)" -ldflags "$(GO_LDFLAGS)" $(pkgmap.$(@F))
+
+release/%/bin/cryptogen: $(PROJECT_FILES)
+	@echo "Building $@ for $(GOOS)-$(GOARCH)"
+	mkdir -p $(@D)
+	$(CGO_FLAGS) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(abspath $@) -tags "$(GO_TAGS)" -ldflags "$(GO_LDFLAGS)" $(pkgmap.$(@F))
+
+release/%/install: $(PROJECT_FILES)
+	mkdir -p $@
+	@cat $@/../../templates/get-docker-images.in \
+		| sed -e 's/_NS_/$(DOCKER_NS)/g' \
+		| sed -e 's/_ARCH_/$(DOCKER_ARCH)/g' \
+		| sed -e 's/_VERSION_/$(PROJECT_VERSION)/g' \
+		> $@/get-docker-images.sh
+		@chmod +x $@/get-docker-images.sh
+
 .PHONY: protos
 protos: buildenv
 	@$(DRUN) $(DOCKER_NS)/fabric-buildenv:$(DOCKER_TAG) ./scripts/compile_protos.sh
@@ -297,6 +351,12 @@ clean: docker-clean unit-test-clean
 .PHONY: dist-clean
 dist-clean: clean gotools-clean
 	-@rm -rf /var/hyperledger/* ||:
+
+%-release-clean:
+	$(eval TARGET = ${patsubst %-release-clean,%,${@}})
+	-@rm -rf release/$(TARGET)
+
+release-clean: $(patsubst %,%-release-clean, $(RELEASE_PLATFORMS))
 
 .PHONY: unit-test-clean
 unit-test-clean:
