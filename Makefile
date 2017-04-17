@@ -170,6 +170,17 @@ build/docker/bin/%: $(PROJECT_FILES)
 		$(BASE_DOCKER_NS)/fabric-baseimage:$(BASE_DOCKER_TAG) \
 		go install -ldflags "$(DOCKER_GO_LDFLAGS)" $(pkgmap.$(@F))
 	@touch $@
+	
+build/docker/sbin/%: $(PROJECT_FILES)
+	$(eval TARGET = ${patsubst build/docker/sbin/%,%,${@}})
+	@echo "Building $@"
+	@mkdir -p build/docker/sbin build/docker/$(TARGET)/pkg
+	@$(DRUN) \
+		-v $(abspath build/docker/sbin):/opt/gopath/bin \
+		-v $(abspath build/docker/$(TARGET)/pkg):/opt/gopath/pkg \
+		$(BASE_DOCKER_NS)/fabric-baseimage:$(BASE_DOCKER_TAG) \
+		go install -ldflags "$(DOCKER_GO_LDFLAGS)" $(pkgmap.$(@F))
+	@touch $@
 
 build/bin:
 	mkdir -p $@
@@ -203,12 +214,12 @@ build/image/javaenv/payload:    build/javashim.tar.bz2 \
 				build/protos.tar.bz2 \
 				settings.gradle
 build/image/peer/payload:       build/docker/bin/peer \
-				build/bin/configtxgen \
+				build/docker/sbin/configtxgen \
 				peer/core.yaml \
 				build/msp-sampleconfig.tar.bz2 \
 				common/configtx/tool/configtx.yaml
 build/image/orderer/payload:    build/docker/bin/orderer \
-				build/bin/configtxgen \
+				build/docker/sbin/configtxgen \
 				build/msp-sampleconfig.tar.bz2 \
 				orderer/orderer.yaml \
 				common/configtx/tool/configtx.yaml
