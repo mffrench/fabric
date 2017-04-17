@@ -6,6 +6,7 @@ node-cli/node-cli
 .idea
 *.iml
 .DS_Store
+.pydevproject
 tags
 .tags
 .vagrant/
