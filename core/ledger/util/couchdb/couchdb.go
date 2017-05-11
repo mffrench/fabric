@@ -176,6 +176,24 @@ type CouchDoc struct {
 	Attachments []Attachment
 }
 
+type DocBulkUnit struct {
+	Id          string           `json:"_id"`
+	Rev         string           `json:"_rev,omitempty"`
+	Delete      bool             `json:"_delete,omitempty"`
+	Version     string           `json:"version"`
+	Chaincodeid string           `json:"chainecodid"`
+	Data        *json.RawMessage `json:"data"`
+}
+
+type DocsBulk struct {
+	// AllOrNothing bool           `json:"all_or_nothing,omitempty"`
+	Docs         []*DocBulkUnit `json:"docs"`
+}
+
+type DocsAllKeys struct {
+	Keys []string `json:"keys"`
+}
+
 //CreateConnectionDefinition for a new client connection
 func CreateConnectionDefinition(couchDBAddress, username, password string) (*CouchConnectionDef, error) {
 
@@ -358,9 +376,12 @@ func (dbclient *CouchDatabase) DropDatabase() (*DBOperationResponse, error) {
 }
 
 // EnsureFullCommit calls _ensure_full_commit for explicit fsync
+// TODO : not necessary if delayed_commits=false on CouchDB configuration
+// TODO : so check the conf before applying unecessary request
+// http://docs.couchdb.org/en/2.0.0/api/database/compact.html#db-ensure-full-commit
 func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) {
 
-	logger.Debugf("Entering EnsureFullCommit()")
+	logger.Infof("Entering EnsureFullCommit()")
 
 	connectURL, err := url.Parse(dbclient.couchInstance.conf.URL)
 	if err != nil {
@@ -383,7 +404,7 @@ func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) 
 		logger.Debugf("_ensure_full_commit database %s ", dbclient.dbName)
 	}
 
-	logger.Debugf("Exiting EnsureFullCommit()")
+	logger.Infof("Exiting EnsureFullCommit()")
 
 	if dbResponse.Ok == true {
 
@@ -394,10 +415,42 @@ func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) 
 	return dbResponse, fmt.Errorf("Error syncing database")
 }
 
+//BulkDocs method provides a function to save bulk of documents
+func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (string, error) {
+	logger.Infof("Entering BulkDocs()")
+	// TODO : manage attachement
+	saveURL, err := url.Parse(dbclient.couchInstance.conf.URL)
+	if err != nil {
+		logger.Errorf("URL parse error: %s", err.Error())
+		return "", err
+	}
+	saveURL.Path = dbclient.dbName + "/_bulk_docs"
+	saveURL = &url.URL{Opaque: saveURL.String()}
+
+	//Set up a buffer for the data to be pushed to couchdb
+	// TODO: check CouchDB POST data limit if any and split the request in several chunk if needed
+	returnJSON, _ := json.Marshal(docsBulk)
+	data := new(bytes.Buffer)
+	data.ReadFrom(bytes.NewReader(returnJSON))
+
+	resp, _, err := dbclient.couchInstance.handleRequest(
+		http.MethodPost, saveURL.String(), data,"","")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// TODO: check the results ! :)
+
+	logger.Infof("Exiting BulkDocs()")
+
+	return "", nil
+}
+
 //SaveDoc method provides a function to save a document, id and byte array
 func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc) (string, error) {
 
-	logger.Debugf("Entering SaveDoc()  id=[%s]", id)
+	logger.Infof("Entering SaveDoc()  id=[%s]", id)
 	if !utf8.ValidString(id) {
 		return "", fmt.Errorf("doc id [%x] not a valid utf8 string", id)
 	}
@@ -413,8 +466,8 @@ func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc
 	saveURL = &url.URL{Opaque: saveURL.String() + "/" + encodePathElement(id)}
 
 	if rev == "" {
-
 		//See if the document already exists, we need the rev for save
+		logger.Infof("Get Rev through ReadDoc: %s", id)
 		_, revdoc, err2 := dbclient.ReadDoc(id)
 		if err2 != nil {
 			//set the revision to indicate that the document was not found
@@ -473,7 +526,7 @@ func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc
 		return "", err
 	}
 
-	logger.Debugf("Exiting SaveDoc()")
+	logger.Infof("Exiting SaveDoc()")
 
 	return revision, nil
 
@@ -481,6 +534,7 @@ func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc
 
 func createAttachmentPart(couchDoc *CouchDoc, defaultBoundary string) (bytes.Buffer, string, error) {
 
+	logger.Infof("Entering createAttachementPart")
 	//Create a buffer for writing the result
 	writeBuffer := new(bytes.Buffer)
 
@@ -544,6 +598,7 @@ func createAttachmentPart(couchDoc *CouchDoc, defaultBoundary string) (bytes.Buf
 		return *writeBuffer, defaultBoundary, err
 	}
 
+	logger.Infof("Exiting createAttachementPart")
 	return *writeBuffer, defaultBoundary, nil
 
 }
@@ -565,7 +620,7 @@ func getRevisionHeader(resp *http.Response) (string, error) {
 //ReadDoc method provides function to retrieve a document from the database by id
 func (dbclient *CouchDatabase) ReadDoc(id string) (*CouchDoc, string, error) {
 	var couchDoc CouchDoc
-	logger.Debugf("Entering ReadDoc()  id=[%s]", id)
+	logger.Infof("Entering ReadDoc()  id=[%s]", id)
 	if !utf8.ValidString(id) {
 		return nil, "", fmt.Errorf("doc id [%x] not a valid utf8 string", id)
 	}
@@ -684,8 +739,123 @@ func (dbclient *CouchDatabase) ReadDoc(id string) (*CouchDoc, string, error) {
 		return nil, "", err
 	}
 
-	logger.Debugf("Exiting ReadDoc()")
+	logger.Infof("Exiting ReadDoc()")
 	return &couchDoc, revision, nil
+}
+
+//ReadRevsKeys method provides a function to get documents revision mapped with document id
+func (dbclient *CouchDatabase) ReadRevsKeys(docsAllKeys DocsAllKeys) (map[string]string, error) {
+	readURL, err := url.Parse(dbclient.couchInstance.conf.URL)
+	if err != nil {
+		logger.Errorf("URL parse error: %s", err.Error())
+		return nil, err
+	}
+	readURL.Path = dbclient.dbName + "/_all_docs"
+	readURL = &url.URL{Opaque: readURL.String()}
+
+	//Set up a buffer for the data to be pushed to couchdb
+	// TODO: check CouchDB POST data limit if any and split the request in several chunk if needed
+	returnJSON, _ := json.Marshal(docsAllKeys)
+	data := new(bytes.Buffer)
+	data.ReadFrom(bytes.NewReader(returnJSON))
+
+	resp, _, err := dbclient.couchInstance.handleRequest(
+		http.MethodPost, readURL.String(), data,"","")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonResponse = &RangeQueryResponse{}
+	err2 := json.Unmarshal(jsonResponseRaw, &jsonResponse)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	ret := map[string]string{}
+	for _, row := range jsonResponse.Rows {
+		value := row.Value
+		if value.Rev != "" {
+			ret[row.ID] = value.Rev
+		}
+	}
+
+	return ret, nil
+}
+
+func (dbclient *CouchDatabase) ReadDocsKeys(docsAllKeys DocsAllKeys) (map[string]*CouchDoc, error) {
+	readURL, err := url.Parse(dbclient.couchInstance.conf.URL)
+	if err != nil {
+		logger.Errorf("URL parse error: %s", err.Error())
+		return nil, err
+	}
+	readURL.Path = dbclient.dbName + "/_all_docs"
+	readURL = &url.URL{Opaque: readURL.String()}
+	queryParms := readURL.Query()
+	queryParms.Set("include_docs", strconv.FormatBool(true))
+	readURL.RawQuery = queryParms.Encode()
+
+	//Set up a buffer for the data to be pushed to couchdb
+	// TODO: check CouchDB POST data limit if any and split the request in several chunk if needed
+	returnJSON, _ := json.Marshal(docsAllKeys)
+	data := new(bytes.Buffer)
+	data.ReadFrom(bytes.NewReader(returnJSON))
+
+	resp, _, err := dbclient.couchInstance.handleRequest(
+		http.MethodPost, readURL.String(), data,"","")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// keysMB, _ := json.Marshal(docsAllKeys.Keys)
+	// queryParms.Set("keys", string(keysMB))
+	// readURL.RawQuery = queryParms.Encode()
+	/*
+	resp, _, err := dbclient.couchInstance.handleRequest(
+		http.MethodGet, readURL.String(), nil,"","")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	*/
+
+	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonResponse = &RangeQueryResponse{}
+	err2 := json.Unmarshal(jsonResponseRaw, &jsonResponse)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	ret := map[string]*CouchDoc{}
+	for _, key := range docsAllKeys.Keys {
+		if key != "" {
+			ret[key] = nil
+		} else {
+			logger.Warningf("Empty key from docsAllKeys.Keys ?!")
+		}
+
+	}
+	for _, row := range jsonResponse.Rows {
+		if row.ID != "" && len(row.Doc) > 0 {
+			var couchDoc CouchDoc
+			// TODO : manage attachement
+			couchDoc.JSONValue = row.Doc
+			ret[row.ID] = &couchDoc
+		} else {
+			logger.Debugf("Empty key or empty doc from jsonReponse.Rows : %v", row)
+		}
+	}
+	return ret, nil
 }
 
 //ReadDocRange method provides function to a range of documents based on the start and end keys
@@ -695,7 +865,7 @@ func (dbclient *CouchDatabase) ReadDoc(id string) (*CouchDoc, string, error) {
 //result set is required
 func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip int) (*[]QueryResult, error) {
 
-	logger.Debugf("Entering ReadDocRange()  startKey=%s, endKey=%s", startKey, endKey)
+	logger.Infof("Entering ReadDocRange()  startKey=%s, endKey=%s", startKey, endKey)
 
 	var results []QueryResult
 
@@ -772,7 +942,7 @@ func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip
 		if jsonDoc.Attachments != nil {
 
 			logger.Debugf("Adding JSON document and attachments for id: %s", jsonDoc.ID)
-
+			logger.Infof("Get Doc through ReadDoc: %s", jsonDoc.ID)
 			couchDoc, _, err := dbclient.ReadDoc(jsonDoc.ID)
 			if err != nil {
 				return nil, err
@@ -792,7 +962,7 @@ func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip
 
 	}
 
-	logger.Debugf("Exiting ReadDocRange()")
+	logger.Infof("Exiting ReadDocRange()")
 
 	return &results, nil
 
@@ -816,6 +986,7 @@ func (dbclient *CouchDatabase) DeleteDoc(id, rev string) error {
 	if rev == "" {
 
 		//See if the document already exists, we need the rev for delete
+		logger.Infof("Get Rev through ReadDoc: %s", id)
 		_, revdoc, err2 := dbclient.ReadDoc(id)
 		if err2 != nil {
 			//set the revision to indicate that the document was not found
@@ -905,7 +1076,7 @@ func (dbclient *CouchDatabase) QueryDocuments(query string) (*[]QueryResult, err
 		if jsonDoc.Attachments != nil {
 
 			logger.Debugf("Adding JSON docment and attachments for id: %s", jsonDoc.ID)
-
+			logger.Infof("Get attachement through ReadDoc: %s", jsonDoc.ID)
 			couchDoc, _, err := dbclient.ReadDoc(jsonDoc.ID)
 			if err != nil {
 				return nil, err
@@ -930,7 +1101,7 @@ func (dbclient *CouchDatabase) QueryDocuments(query string) (*[]QueryResult, err
 //handleRequest method is a generic http request handler
 func (couchInstance *CouchInstance) handleRequest(method, connectURL string, data io.Reader, rev string, multipartBoundary string) (*http.Response, *DBReturn, error) {
 
-	logger.Debugf("Entering handleRequest()  method=%s  url=%v", method, connectURL)
+	logger.Infof("Entering handleRequest()  method=%s  url=%v multipartBoundary=%s", method, connectURL, multipartBoundary)
 
 	//Create request based on URL for couchdb operation
 	req, err := http.NewRequest(method, connectURL, data)
@@ -1067,7 +1238,7 @@ func (couchInstance *CouchInstance) handleRequest(method, connectURL string, dat
 
 	}
 
-	logger.Debugf("Exiting handleRequest()")
+	logger.Infof("Exiting handleRequest()")
 
 	//If no errors, then return the results
 	return resp, couchDBReturn, nil

@@ -35,8 +35,10 @@ type VersionedDBProvider interface {
 type VersionedDB interface {
 	// GetState gets the value for given namespace and key. For a chaincode, the namespace corresponds to the chaincodeId
 	GetState(namespace string, key string) (*VersionedValue, error)
-	// GetStateMultipleKeys gets the values for multiple keys in a single call
+	// GetStateMultipleKeys gets the values for multiple keys in a single call and return array of value
 	GetStateMultipleKeys(namespace string, keys []string) ([]*VersionedValue, error)
+	// GetKStateByMultipleKeys gets the values for multiple keys in a single call and return a map<key, value>
+        GetKStateByMultipleKeys(namespace string, keys []string) (map[string]*VersionedValue, error)
 	// GetStateRangeScanIterator returns an iterator that contains all the key-values between given key ranges.
 	// startKey is inclusive
 	// endKey is exclusive
@@ -55,6 +57,8 @@ type VersionedDB interface {
 	Open() error
 	// Close closes the db
 	Close()
+	// Get VersionedDB type
+	GetVDBType() string
 }
 
 // CompositeKey encloses Namespace and Key components

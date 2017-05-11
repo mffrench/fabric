@@ -30,6 +30,7 @@ It has these top-level messages:
 	ChaincodeEvent
 	ChaincodeMessage
 	PutStateInfo
+	GetKStateByMultipleKeysResponse
 	GetStateByRange
 	GetQueryResult
 	GetHistoryForKey

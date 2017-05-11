@@ -35,6 +35,7 @@ type queryHelper struct {
 
 func (h *queryHelper) getState(ns string, key string) ([]byte, error) {
 	h.checkDone()
+	logger.Infof("GetState from helper.getState")
 	versionedValue, err := h.txmgr.db.GetState(ns, key)
 	if err != nil {
 		return nil, err
@@ -59,6 +60,23 @@ func (h *queryHelper) getStateMultipleKeys(namespace string, keys []string) ([][
 			h.rwset.AddToReadSet(namespace, keys[i], ver)
 		}
 		values[i] = val
+	}
+	return values, nil
+}
+
+func (h *queryHelper) getKStateByMultipleKeys(namespace string, keys []string) (map[string][]byte, error) {
+	h.checkDone()
+	versionedValues, err := h.txmgr.db.GetKStateByMultipleKeys(namespace, keys)
+	if err != nil {
+		return nil, nil
+	}
+	values := map[string][]byte{}
+	for key, versionedValue := range versionedValues {
+		val, ver := decomposeVersionedValue(versionedValue)
+		if h.rwset != nil {
+			h.rwset.AddToReadSet(namespace, key, ver)
+		}
+		values[key] = val
 	}
 	return values, nil
 }

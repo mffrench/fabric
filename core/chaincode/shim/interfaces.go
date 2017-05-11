@@ -65,6 +65,9 @@ type ChaincodeStubInterface interface {
 	// DelState removes the specified `key` and its value from the ledger.
 	DelState(key string) error
 
+	// TODO: SOME DESCRIPTION
+	GetKStateByMultipleKeys(keys []string) (*pb.GetKStateByMultipleKeysResponse, error)
+
 	// GetStateByRange function can be invoked by a chaincode to query of a range
 	// of keys in the state. Assuming the startKey and endKey are in lexical
 	// an iterator will be returned that can be used to iterate over all keys

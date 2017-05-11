@@ -79,8 +79,10 @@ type ValidatedLedger interface {
 type QueryExecutor interface {
 	// GetState gets the value for given namespace and key. For a chaincode, the namespace corresponds to the chaincodeId
 	GetState(namespace string, key string) ([]byte, error)
-	// GetStateMultipleKeys gets the values for multiple keys in a single call
+	// GetStateMultipleKeys gets the values for multiple keys in a single call and return an array of value
 	GetStateMultipleKeys(namespace string, keys []string) ([][]byte, error)
+	// GetKStateByMultipleKeys gets the values for multiple keys in a single call and return a map<key, value>
+	GetKStateByMultipleKeys(namespace string, keys []string) (map[string][]byte, error)
 	// GetStateRangeScanIterator returns an iterator that contains all the key-values between given key ranges.
 	// startKey is included in the results and endKey is excluded. An empty startKey refers to the first available key
 	// and an empty endKey refers to the last available key. For scanning all the keys, both the startKey and the endKey

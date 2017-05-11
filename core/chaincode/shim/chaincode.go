@@ -358,6 +358,11 @@ type StateQueryIterator struct {
 	currentLoc int
 }
 
+// TODO : SOME DESCRIPTIONS
+func (stub *ChaincodeStub) GetKStateByMultipleKeys(keys []string) (*pb.GetKStateByMultipleKeysResponse, error) {
+	return stub.handler.handleGetKStateByMultipleKeys(keys, stub.TxID)
+}
+
 // GetStateByRange function can be invoked by a chaincode to query of a range
 // of keys in the state. Assuming the startKey and endKey are in lexical order,
 // an iterator will be returned that can be used to iterate over all keys
@@ -564,7 +569,16 @@ func (stub *ChaincodeStub) GetArgsSlice() ([]byte, error) {
 // taken from the peer receiving the transaction. Note that this timestamp
 // may not be the same with the other peers' time.
 func (stub *ChaincodeStub) GetTxTimestamp() (*timestamp.Timestamp, error) {
-	return nil, nil
+	hdr, err := utils.GetHeader(stub.proposal.Header)
+	if err != nil {
+		return nil, err
+	}
+	chdr, err := utils.UnmarshalChannelHeader(hdr.ChannelHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	return chdr.GetTimestamp(), nil
 }
 
 // ------------- ChaincodeEvent API ----------------------
