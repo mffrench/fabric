@@ -223,31 +223,32 @@ func (vdb *VersionedDB) GetStateMultipleKeys(namespace string, keys []string) ([
 
 // GetKStateByMultipleKeys implements method in VersionedDB interface
 func (vdb *VersionedDB) GetKStateByMultipleKeys(namespace string, keys []string) (map[string]*statedb.VersionedValue, error) {
-
-	// first : define document ids list keys
-	allGet := couchdb.DocsAllKeys{}
-	for _, key := range keys {
-		allGet.Keys = append(allGet.Keys, string(constructCompositeKey(namespace, key)))
-	}
-
-	// second : get documents revisions in one shoot (CouchDB OP)
-	compositeKeysDocMap, err := vdb.db.ReadDocsKeys(allGet)
-	if err != nil {
-		logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
-		return nil, err
-	}
-
-	// third : build result
 	vals := map[string]*statedb.VersionedValue{}
-	for cKey, couchDoc := range compositeKeysDocMap {
-		_, key := splitCompositeKey([]byte(cKey))
-		if couchDoc == nil {
-			vals[key] = nil
-		} else if  len(couchDoc.JSONValue) == 0 {
-			vals[key] = nil
-		} else {
-			returnValue, returnVersion := removeDataWrapper(couchDoc.JSONValue, couchDoc.Attachments)
-			vals[key] = &statedb.VersionedValue{Value: returnValue, Version: &returnVersion}
+	if len(keys) > 0 {
+		// first : define document ids list keys
+		allGet := couchdb.DocsAllKeys{}
+		for _, key := range keys {
+			allGet.Keys = append(allGet.Keys, string(constructCompositeKey(namespace, key)))
+		}
+
+		// second : get documents revisions in one shoot (CouchDB OP)
+		compositeKeysDocMap, err := vdb.db.ReadDocsKeys(allGet)
+		if err != nil {
+			logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
+			return nil, err
+		}
+
+		// third : build result
+		for cKey, couchDoc := range compositeKeysDocMap {
+			_, key := splitCompositeKey([]byte(cKey))
+			if couchDoc == nil {
+				vals[key] = nil
+			} else if  len(couchDoc.JSONValue) == 0 {
+				vals[key] = nil
+			} else {
+				returnValue, returnVersion := removeDataWrapper(couchDoc.JSONValue, couchDoc.Attachments)
+				vals[key] = &statedb.VersionedValue{Value: returnValue, Version: &returnVersion}
+			}
 		}
 	}
 	return vals, nil
@@ -376,7 +377,7 @@ func applyUpdatesUnit(vdb *VersionedDB, batch *statedb.UpdateBatch, height *vers
 	return nil
 }
 
-// improvement try with CouchDB bulk operation for ApplyUpdates
+// ApplyUpdates with CouchDB Bulk to avoid CouchDB DoS and improve perf
 func applyUpdatesBulk(vdb *VersionedDB, batch *statedb.UpdateBatch, height *version.Height) error {
 	bulkDocs := couchdb.DocsBulk{}
 	namespaces := batch.GetUpdatedNamespaces()

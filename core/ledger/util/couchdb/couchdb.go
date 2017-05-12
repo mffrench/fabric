@@ -37,6 +37,7 @@ import (
 	"unicode/utf8"
 
 	logging "github.com/op/go-logging"
+	"errors"
 )
 
 var logger = logging.MustGetLogger("couchdb")
@@ -186,8 +187,15 @@ type DocBulkUnit struct {
 }
 
 type DocsBulk struct {
-	// AllOrNothing bool           `json:"all_or_nothing,omitempty"`
 	Docs         []*DocBulkUnit `json:"docs"`
+}
+
+type DocsBulkResp struct {
+	IsOK     bool   `json:"ok"`
+	ID       string `json:"id"`
+	Revision string `json:"rev,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type DocsAllKeys struct {
@@ -416,13 +424,13 @@ func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) 
 }
 
 //BulkDocs method provides a function to save bulk of documents
-func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (string, error) {
+func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (map[string]string, error) {
 	logger.Debugf("Entering BulkDocs()")
 	// TODO : manage attachement
 	saveURL, err := url.Parse(dbclient.couchInstance.conf.URL)
 	if err != nil {
 		logger.Errorf("URL parse error: %s", err.Error())
-		return "", err
+		return nil, err
 	}
 	saveURL.Path = dbclient.dbName + "/_bulk_docs"
 	saveURL = &url.URL{Opaque: saveURL.String()}
@@ -436,16 +444,37 @@ func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (string, error) {
 	resp, _, err := dbclient.couchInstance.handleRequest(
 		http.MethodPost, saveURL.String(), data,"","")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// TODO: check the results ! :)
+	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 
+	var jsonResponse = []DocsBulkResp{}
+	err = json.Unmarshal(jsonResponseRaw, &jsonResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := map[string]string{}
+	errorsList := ""
+	for _, row := range jsonResponse {
+		if row.IsOK {
+			ret[row.ID] = row.Revision
+		} else {
+			errorsList += "Error on key " + row.ID + " : " + row.Error + " - " + row.Reason + "\n"
+		}
+	}
 
 	logger.Debugf("Exiting BulkDocs()")
-
-	return "", nil
+	if errorsList == "" {
+		return ret, nil
+	} else {
+		return ret, errors.New("Error(s) raised when bulking. \n" + errorsList)
+	}
 }
 
 //SaveDoc method provides a function to save a document, id and byte array
@@ -812,18 +841,6 @@ func (dbclient *CouchDatabase) ReadDocsKeys(docsAllKeys DocsAllKeys) (map[string
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	// keysMB, _ := json.Marshal(docsAllKeys.Keys)
-	// queryParms.Set("keys", string(keysMB))
-	// readURL.RawQuery = queryParms.Encode()
-	/*
-	resp, _, err := dbclient.couchInstance.handleRequest(
-		http.MethodGet, readURL.String(), nil,"","")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	*/
 
 	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
