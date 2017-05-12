@@ -358,7 +358,9 @@ type StateQueryIterator struct {
 	currentLoc int
 }
 
-// TODO : SOME DESCRIPTIONS
+// GetKStateByMultipleKeys function can be invoked by a chaincode to query of
+// an array of keys in the state.
+// A map<key,value> will be returned through the GetKStateByMultipleKeysResponse.
 func (stub *ChaincodeStub) GetKStateByMultipleKeys(keys []string) (*pb.GetKStateByMultipleKeysResponse, error) {
 	return stub.handler.handleGetKStateByMultipleKeys(keys, stub.TxID)
 }

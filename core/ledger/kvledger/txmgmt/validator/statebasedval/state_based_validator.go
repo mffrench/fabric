@@ -214,7 +214,6 @@ func (v *Validator) validateKVRead(ns string, kvRead *rwset.KVRead, updates *sta
 	if updates.Exists(ns, kvRead.Key) {
 		return false, nil
 	}
-	logger.Infof("GetState(" + kvRead.Key + ") from validateKVRead")
 	versionedValue, err := v.db.GetState(ns, kvRead.Key)
 	if err != nil {
 		return false, nil
@@ -249,13 +248,13 @@ func (v *Validator) validateMultipleKVRead(ns string, kvReads []*rwset.KVRead, u
 
 		versionedKValues, err := v.db.GetKStateByMultipleKeys(ns, keys)
 		if err != nil {
-			logger.Infof("error raised by GetKStateMultipleKeys: " + err.Error())
+			logger.Errorf("error raised by GetKStateMultipleKeys: " + err.Error())
 			return false, err
 		}
 
 		for key, versionedValue := range versionedKValues {
 			if updates.Exists(ns, key) {
-				logger.Infof("updates exists " + key)
+				logger.Debugf("updates exists " + key)
 				return false, nil
 			}
 			var committedVersion *version.Height
@@ -277,7 +276,6 @@ func (v *Validator) validateMultipleKVRead(ns string, kvReads []*rwset.KVRead, u
 		}
 		return true, nil
 	} else if len(kvReads) == 1 {
-		logger.Infof("ValidateKVRead from validateMultipleKVRead")
 		return v.validateKVRead(ns, kvReads[0], updates)
 	}
 	return true, nil

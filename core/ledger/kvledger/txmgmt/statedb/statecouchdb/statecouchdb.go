@@ -174,7 +174,6 @@ func (vdb *VersionedDB) GetState(namespace string, key string) (*statedb.Version
 
 	compositeKey := constructCompositeKey(namespace, key)
 
-	logger.Infof("Get State through ReadDoc: %s", string(compositeKey))
 	couchDoc, _, err := vdb.db.ReadDoc(string(compositeKey))
 	if err != nil {
 		return nil, err
@@ -200,7 +199,6 @@ func (vdb *VersionedDB) GetStateMultipleKeys(namespace string, keys []string) ([
 
 	// second : get documents revisions in one shoot (CouchDB OP)
 	compositeKeysDocMap, err := vdb.db.ReadDocsKeys(allGet)
-	logger.Infof("compositeKeysDocMap: %+v\n", compositeKeysDocMap)
 	if err != nil {
 		logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
 		return nil, err
@@ -234,7 +232,6 @@ func (vdb *VersionedDB) GetKStateByMultipleKeys(namespace string, keys []string)
 
 	// second : get documents revisions in one shoot (CouchDB OP)
 	compositeKeysDocMap, err := vdb.db.ReadDocsKeys(allGet)
-	logger.Infof("compositeKeysDocMap: %+v\n", compositeKeysDocMap)
 	if err != nil {
 		logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
 		return nil, err
@@ -323,13 +320,10 @@ func (vdb *VersionedDB) ApplyUpdates(batch *statedb.UpdateBatch, height *version
 			return applyUpdatesBulk(vdb, batch, height)
 		}
 	}
-	return applyUpdatesUnit(vdb, batch, height)
 }
 
 // 1.0.0-alpha implementation for ApplyUpdates
 func applyUpdatesUnit(vdb *VersionedDB, batch *statedb.UpdateBatch, height *version.Height) error {
-	logger.Infof("Entering applyUpdatesUnit")
-	updateDocCount := 0
 	namespaces := batch.GetUpdatedNamespaces()
 	for _, ns := range namespaces {
 		updates := batch.GetUpdates(ns)
@@ -370,7 +364,6 @@ func applyUpdatesUnit(vdb *VersionedDB, batch *statedb.UpdateBatch, height *vers
 					logger.Debugf("Saved document revision number: %s\n", rev)
 				}
 			}
-			updateDocCount++
 		}
 	}
 
@@ -380,16 +373,13 @@ func applyUpdatesUnit(vdb *VersionedDB, batch *statedb.UpdateBatch, height *vers
 		logger.Errorf("Error during recordSavepoint: %s\n", err.Error())
 		return err
 	}
-	logger.Infof("Exiting applyUpdatesUnit %d", updateDocCount)
 	return nil
 }
 
 // improvement try with CouchDB bulk operation for ApplyUpdates
 func applyUpdatesBulk(vdb *VersionedDB, batch *statedb.UpdateBatch, height *version.Height) error {
-	logger.Infof("Entering applyUpdatesBulk")
 	bulkDocs := couchdb.DocsBulk{}
 	namespaces := batch.GetUpdatedNamespaces()
-	updateDocCount := 0
 
 	// first : define document ids list from batch
 	allInsertUpdate := couchdb.DocsAllKeys{}
@@ -431,7 +421,6 @@ func applyUpdatesBulk(vdb *VersionedDB, batch *statedb.UpdateBatch, height *vers
 				logger.Debugf("new docUnit in bulk: %+v\n", docUnit)
 				bulkDocs.Docs = append(bulkDocs.Docs, docUnit)
 			}
-			updateDocCount++
 		}
 	}
 
@@ -448,7 +437,6 @@ func applyUpdatesBulk(vdb *VersionedDB, batch *statedb.UpdateBatch, height *vers
 		logger.Errorf("Error during recordSavepoint: %s\n", err.Error())
 		return err
 	}
-	logger.Infof("Exiting applyUpdatesBulk %d", updateDocCount)
 
 	return nil
 }
@@ -541,7 +529,6 @@ func (vdb *VersionedDB) recordSavepoint(height *version.Height) error {
 func (vdb *VersionedDB) GetLatestSavePoint() (*version.Height, error) {
 
 	var err error
-	logger.Infof("Get latest save point through ReadDoc: %s", savepointDocID)
 	couchDoc, _, err := vdb.db.ReadDoc(savepointDocID)
 	if err != nil {
 		logger.Errorf("Failed to read savepoint data %s\n", err.Error())

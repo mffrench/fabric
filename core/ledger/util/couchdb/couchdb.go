@@ -381,7 +381,7 @@ func (dbclient *CouchDatabase) DropDatabase() (*DBOperationResponse, error) {
 // http://docs.couchdb.org/en/2.0.0/api/database/compact.html#db-ensure-full-commit
 func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) {
 
-	logger.Infof("Entering EnsureFullCommit()")
+	logger.Debugf("Entering EnsureFullCommit()")
 
 	connectURL, err := url.Parse(dbclient.couchInstance.conf.URL)
 	if err != nil {
@@ -404,7 +404,7 @@ func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) 
 		logger.Debugf("_ensure_full_commit database %s ", dbclient.dbName)
 	}
 
-	logger.Infof("Exiting EnsureFullCommit()")
+	logger.Debugf("Exiting EnsureFullCommit()")
 
 	if dbResponse.Ok == true {
 
@@ -417,7 +417,7 @@ func (dbclient *CouchDatabase) EnsureFullCommit() (*DBOperationResponse, error) 
 
 //BulkDocs method provides a function to save bulk of documents
 func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (string, error) {
-	logger.Infof("Entering BulkDocs()")
+	logger.Debugf("Entering BulkDocs()")
 	// TODO : manage attachement
 	saveURL, err := url.Parse(dbclient.couchInstance.conf.URL)
 	if err != nil {
@@ -442,7 +442,8 @@ func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (string, error) {
 
 	// TODO: check the results ! :)
 
-	logger.Infof("Exiting BulkDocs()")
+
+	logger.Debugf("Exiting BulkDocs()")
 
 	return "", nil
 }
@@ -450,7 +451,7 @@ func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (string, error) {
 //SaveDoc method provides a function to save a document, id and byte array
 func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc) (string, error) {
 
-	logger.Infof("Entering SaveDoc()  id=[%s]", id)
+	logger.Debugf("Entering SaveDoc()  id=[%s]", id)
 	if !utf8.ValidString(id) {
 		return "", fmt.Errorf("doc id [%x] not a valid utf8 string", id)
 	}
@@ -467,7 +468,6 @@ func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc
 
 	if rev == "" {
 		//See if the document already exists, we need the rev for save
-		logger.Infof("Get Rev through ReadDoc: %s", id)
 		_, revdoc, err2 := dbclient.ReadDoc(id)
 		if err2 != nil {
 			//set the revision to indicate that the document was not found
@@ -526,7 +526,7 @@ func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc
 		return "", err
 	}
 
-	logger.Infof("Exiting SaveDoc()")
+	logger.Debugf("Exiting SaveDoc()")
 
 	return revision, nil
 
@@ -534,7 +534,7 @@ func (dbclient *CouchDatabase) SaveDoc(id string, rev string, couchDoc *CouchDoc
 
 func createAttachmentPart(couchDoc *CouchDoc, defaultBoundary string) (bytes.Buffer, string, error) {
 
-	logger.Infof("Entering createAttachementPart")
+	logger.Debugf("Entering createAttachementPart")
 	//Create a buffer for writing the result
 	writeBuffer := new(bytes.Buffer)
 
@@ -598,7 +598,7 @@ func createAttachmentPart(couchDoc *CouchDoc, defaultBoundary string) (bytes.Buf
 		return *writeBuffer, defaultBoundary, err
 	}
 
-	logger.Infof("Exiting createAttachementPart")
+	logger.Debugf("Exiting createAttachementPart")
 	return *writeBuffer, defaultBoundary, nil
 
 }
@@ -620,7 +620,7 @@ func getRevisionHeader(resp *http.Response) (string, error) {
 //ReadDoc method provides function to retrieve a document from the database by id
 func (dbclient *CouchDatabase) ReadDoc(id string) (*CouchDoc, string, error) {
 	var couchDoc CouchDoc
-	logger.Infof("Entering ReadDoc()  id=[%s]", id)
+	logger.Debugf("Entering ReadDoc()  id=[%s]", id)
 	if !utf8.ValidString(id) {
 		return nil, "", fmt.Errorf("doc id [%x] not a valid utf8 string", id)
 	}
@@ -739,7 +739,7 @@ func (dbclient *CouchDatabase) ReadDoc(id string) (*CouchDoc, string, error) {
 		return nil, "", err
 	}
 
-	logger.Infof("Exiting ReadDoc()")
+	logger.Debugf("Exiting ReadDoc()")
 	return &couchDoc, revision, nil
 }
 
@@ -865,7 +865,7 @@ func (dbclient *CouchDatabase) ReadDocsKeys(docsAllKeys DocsAllKeys) (map[string
 //result set is required
 func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip int) (*[]QueryResult, error) {
 
-	logger.Infof("Entering ReadDocRange()  startKey=%s, endKey=%s", startKey, endKey)
+	logger.Debugf("Entering ReadDocRange()  startKey=%s, endKey=%s", startKey, endKey)
 
 	var results []QueryResult
 
@@ -942,7 +942,6 @@ func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip
 		if jsonDoc.Attachments != nil {
 
 			logger.Debugf("Adding JSON document and attachments for id: %s", jsonDoc.ID)
-			logger.Infof("Get Doc through ReadDoc: %s", jsonDoc.ID)
 			couchDoc, _, err := dbclient.ReadDoc(jsonDoc.ID)
 			if err != nil {
 				return nil, err
@@ -962,7 +961,7 @@ func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip
 
 	}
 
-	logger.Infof("Exiting ReadDocRange()")
+	logger.Debugf("Exiting ReadDocRange()")
 
 	return &results, nil
 
@@ -986,7 +985,6 @@ func (dbclient *CouchDatabase) DeleteDoc(id, rev string) error {
 	if rev == "" {
 
 		//See if the document already exists, we need the rev for delete
-		logger.Infof("Get Rev through ReadDoc: %s", id)
 		_, revdoc, err2 := dbclient.ReadDoc(id)
 		if err2 != nil {
 			//set the revision to indicate that the document was not found
@@ -1076,7 +1074,6 @@ func (dbclient *CouchDatabase) QueryDocuments(query string) (*[]QueryResult, err
 		if jsonDoc.Attachments != nil {
 
 			logger.Debugf("Adding JSON docment and attachments for id: %s", jsonDoc.ID)
-			logger.Infof("Get attachement through ReadDoc: %s", jsonDoc.ID)
 			couchDoc, _, err := dbclient.ReadDoc(jsonDoc.ID)
 			if err != nil {
 				return nil, err
@@ -1101,7 +1098,7 @@ func (dbclient *CouchDatabase) QueryDocuments(query string) (*[]QueryResult, err
 //handleRequest method is a generic http request handler
 func (couchInstance *CouchInstance) handleRequest(method, connectURL string, data io.Reader, rev string, multipartBoundary string) (*http.Response, *DBReturn, error) {
 
-	logger.Infof("Entering handleRequest()  method=%s  url=%v multipartBoundary=%s", method, connectURL, multipartBoundary)
+	logger.Debugf("Entering handleRequest()  method=%s  url=%v multipartBoundary=%s", method, connectURL, multipartBoundary)
 
 	//Create request based on URL for couchdb operation
 	req, err := http.NewRequest(method, connectURL, data)
@@ -1238,7 +1235,7 @@ func (couchInstance *CouchInstance) handleRequest(method, connectURL string, dat
 
 	}
 
-	logger.Infof("Exiting handleRequest()")
+	logger.Debugf("Exiting handleRequest()")
 
 	//If no errors, then return the results
 	return resp, couchDBReturn, nil

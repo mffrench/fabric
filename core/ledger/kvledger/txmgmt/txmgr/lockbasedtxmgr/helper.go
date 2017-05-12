@@ -35,7 +35,6 @@ type queryHelper struct {
 
 func (h *queryHelper) getState(ns string, key string) ([]byte, error) {
 	h.checkDone()
-	logger.Infof("GetState from helper.getState")
 	versionedValue, err := h.txmgr.db.GetState(ns, key)
 	if err != nil {
 		return nil, err
