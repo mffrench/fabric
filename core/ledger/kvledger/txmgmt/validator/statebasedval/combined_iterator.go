@@ -136,7 +136,6 @@ func (itr *combinedIterator) serveEndKeyIfNeeded() (statedb.QueryResult, error) 
 	vv = itr.updates.Get(itr.ns, itr.endKey)
 	logger.Debugf("endKey value from updates:%s", vv)
 	if vv == nil {
-		logger.Infof("GetState from serveKeyIfNeeded")
 		if vv, err = itr.db.GetState(itr.ns, itr.endKey); err != nil {
 			return nil, err
 		}
