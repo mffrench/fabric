@@ -36,8 +36,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	logging "github.com/op/go-logging"
 	"errors"
+
+	logging "github.com/op/go-logging"
 )
 
 var logger = logging.MustGetLogger("couchdb")
@@ -187,7 +188,7 @@ type DocBulkUnit struct {
 }
 
 type DocsBulk struct {
-	Docs         []*DocBulkUnit `json:"docs"`
+	Docs []*DocBulkUnit `json:"docs"`
 }
 
 type DocsBulkResp struct {
@@ -442,7 +443,7 @@ func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (map[string]string, e
 	data.ReadFrom(bytes.NewReader(returnJSON))
 
 	resp, _, err := dbclient.couchInstance.handleRequest(
-		http.MethodPost, saveURL.String(), data,"","")
+		http.MethodPost, saveURL.String(), data, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -789,7 +790,7 @@ func (dbclient *CouchDatabase) ReadRevsKeys(docsAllKeys DocsAllKeys) (map[string
 	data.ReadFrom(bytes.NewReader(returnJSON))
 
 	resp, _, err := dbclient.couchInstance.handleRequest(
-		http.MethodPost, readURL.String(), data,"","")
+		http.MethodPost, readURL.String(), data, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -836,7 +837,7 @@ func (dbclient *CouchDatabase) ReadDocsKeys(docsAllKeys DocsAllKeys) (map[string
 	data.ReadFrom(bytes.NewReader(returnJSON))
 
 	resp, _, err := dbclient.couchInstance.handleRequest(
-		http.MethodPost, readURL.String(), data,"","")
+		http.MethodPost, readURL.String(), data, "", "")
 	if err != nil {
 		return nil, err
 	}

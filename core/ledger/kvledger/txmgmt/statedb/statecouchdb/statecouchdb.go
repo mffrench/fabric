@@ -210,7 +210,7 @@ func (vdb *VersionedDB) GetStateMultipleKeys(namespace string, keys []string) ([
 	for _, couchDoc := range compositeKeysDocMap {
 		if couchDoc == nil {
 			vals[idx] = nil
-		} else if  len(couchDoc.JSONValue) == 0 {
+		} else if len(couchDoc.JSONValue) == 0 {
 			vals[idx] = nil
 		} else {
 			returnValue, returnVersion := removeDataWrapper(couchDoc.JSONValue, couchDoc.Attachments)
@@ -243,7 +243,7 @@ func (vdb *VersionedDB) GetKStateByMultipleKeys(namespace string, keys []string)
 			_, key := splitCompositeKey([]byte(cKey))
 			if couchDoc == nil {
 				vals[key] = nil
-			} else if  len(couchDoc.JSONValue) == 0 {
+			} else if len(couchDoc.JSONValue) == 0 {
 				vals[key] = nil
 			} else {
 				returnValue, returnVersion := removeDataWrapper(couchDoc.JSONValue, couchDoc.Attachments)

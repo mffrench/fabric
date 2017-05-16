@@ -659,7 +659,7 @@ func (chaincodeSupport *ChaincodeSupport) Execute(ctxt context.Context, cccid *c
 		//response is sent to user or calling chaincode. ChaincodeMessage_ERROR
 		//are typically treated as error
 	case <-time.After(timeout):
-		err = fmt.Errorf("Timeout (%d) expired while executing transaction", int(timeout / time.Millisecond))
+		err = fmt.Errorf("Timeout (%d) expired while executing transaction", int(timeout/time.Millisecond))
 	}
 
 	//our responsibility to delete transaction context if sendExecuteMessage succeeded
