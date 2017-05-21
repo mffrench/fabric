@@ -18,20 +18,41 @@ package localconfig
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+
 	"strings"
 	"time"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/viperutil"
+	logging "github.com/op/go-logging"
 
-	"github.com/op/go-logging"
 	"github.com/spf13/viper"
 
+	"path/filepath"
+
 	bccsp "github.com/hyperledger/fabric/bccsp/factory"
+	cf "github.com/hyperledger/fabric/core/config"
 )
 
-var logger = logging.MustGetLogger("configtx/tool/localconfig")
+const (
+	pkgLogID = "common/configtx/tool/localconfig"
+
+	// Prefix identifies the prefix for the configtxgen-related ENV vars.
+	Prefix string = "CONFIGTX"
+)
+
+var (
+	logger *logging.Logger
+
+	configName string
+)
+
+func init() {
+	logger = flogging.MustGetLogger(pkgLogID)
+	flogging.SetModuleLevel(pkgLogID, "error")
+
+	configName = strings.ToLower(Prefix)
+}
 
 const (
 	// SampleInsecureProfile references the sample profile which does not include any MSPs and uses solo for ordering.
@@ -39,19 +60,16 @@ const (
 	// SampleSingleMSPSoloProfile references the sample profile which includes only the sample MSP and uses solo for ordering.
 	SampleSingleMSPSoloProfile = "SampleSingleMSPSolo"
 
-	// Prefix identifies the prefix for the configtxgen-related ENV vars.
-	Prefix string = "CONFIGTX"
-)
+	// SampleConsortiumName is the sample consortium from the sample configtx.yaml
+	SampleConsortiumName = "SampleConsortium"
+	// SampleOrgName is the name of the sample org in the sample profiles
+	SampleOrgName = "SampleOrg"
 
-var (
-	configName     string
-	configFileName string
+	// AdminRoleAdminPrincipal is set as AdminRole to cause the MSP role of type Admin to be used as the admin principal default
+	AdminRoleAdminPrincipal = "Role.ADMIN"
+	// MemberRoleAdminPrincipal is set as AdminRole to cause the MSP role of type Member to be used as the admin principal default
+	MemberRoleAdminPrincipal = "Role.MEMBER"
 )
-
-func init() {
-	configName = strings.ToLower(Prefix)
-	configFileName = configName + ".yaml"
-}
 
 // TopLevel consists of the structs used by the configtxgen tool.
 type TopLevel struct {
@@ -63,8 +81,15 @@ type TopLevel struct {
 
 // Profile encodes orderer/application configuration combinations for the configtxgen tool.
 type Profile struct {
-	Application *Application `yaml:"Application"`
-	Orderer     *Orderer     `yaml:"Orderer"`
+	Consortium  string                 `yaml:"Consortium"`
+	Application *Application           `yaml:"Application"`
+	Orderer     *Orderer               `yaml:"Orderer"`
+	Consortiums map[string]*Consortium `yaml:"Consortiums"`
+}
+
+// Consortium represents a group of organizations which may create channels with eachother
+type Consortium struct {
+	Organizations []*Organization `yaml:"Organizations"`
 }
 
 // Application encodes the application-level configuration needed in config transactions.
@@ -74,10 +99,11 @@ type Application struct {
 
 // Organization encodes the organization-level configuration needed in config transactions.
 type Organization struct {
-	Name   string             `yaml:"Name"`
-	ID     string             `yaml:"ID"`
-	MSPDir string             `yaml:"MSPDir"`
-	BCCSP  *bccsp.FactoryOpts `yaml:"BCCSP"`
+	Name           string             `yaml:"Name"`
+	ID             string             `yaml:"ID"`
+	MSPDir         string             `yaml:"MSPDir"`
+	AdminPrincipal string             `yaml:"AdminPrincipal"`
+	BCCSP          *bccsp.FactoryOpts `yaml:"BCCSP"`
 
 	// Note: Viper deserialization does not seem to care for
 	// embedding of types, so we use one organization struct
@@ -137,7 +163,77 @@ var genesisDefaults = TopLevel{
 	},
 }
 
-func (p *Profile) completeInitialization() {
+// Load returns the orderer/application config combination that corresponds to a given profile.
+func Load(profile string) *Profile {
+	config := viper.New()
+	cf.InitViper(config, configName)
+
+	// For environment variables
+	config.SetEnvPrefix(Prefix)
+	config.AutomaticEnv()
+	// This replacer allows substitution within the particular profile without having to fully qualify the name
+	replacer := strings.NewReplacer(strings.ToUpper(fmt.Sprintf("profiles.%s.", profile)), "", ".", "_")
+	config.SetEnvKeyReplacer(replacer)
+
+	err := config.ReadInConfig()
+	if err != nil {
+		logger.Panic("Error reading configuration: ", err)
+	}
+	logger.Debugf("Using config file: %s", config.ConfigFileUsed())
+
+	var uconf TopLevel
+	err = viperutil.EnhancedExactUnmarshal(config, &uconf)
+	if err != nil {
+		logger.Panic("Error unmarshaling config into struct: ", err)
+	}
+
+	result, ok := uconf.Profiles[profile]
+	if !ok {
+		logger.Panic("Could not find profile: ", profile)
+	}
+
+	result.completeInitialization(filepath.Dir(config.ConfigFileUsed()))
+
+	logger.Infof("Loaded configuration: %s", config.ConfigFileUsed())
+
+	return result
+}
+
+func (p *Profile) completeInitialization(configDir string) {
+	if p.Orderer != nil {
+		for _, org := range p.Orderer.Organizations {
+			if org.AdminPrincipal == "" {
+				org.AdminPrincipal = AdminRoleAdminPrincipal
+			}
+			translatePaths(configDir, org)
+		}
+	}
+
+	if p.Application != nil {
+		for _, org := range p.Application.Organizations {
+			if org.AdminPrincipal == "" {
+				org.AdminPrincipal = AdminRoleAdminPrincipal
+			}
+			translatePaths(configDir, org)
+		}
+	}
+
+	if p.Consortiums != nil {
+		for _, consortium := range p.Consortiums {
+			for _, org := range consortium.Organizations {
+				if org.AdminPrincipal == "" {
+					org.AdminPrincipal = AdminRoleAdminPrincipal
+				}
+				translatePaths(configDir, org)
+			}
+		}
+	}
+
+	// Some profiles will not define orderer parameters
+	if p.Orderer == nil {
+		return
+	}
+
 	for {
 		switch {
 		case p.Orderer.OrdererType == "":
@@ -167,71 +263,7 @@ func (p *Profile) completeInitialization() {
 	}
 }
 
-// Load returns the orderer/application config combination that corresponds to a given profile.
-func Load(profile string) *Profile {
-	config := viper.New()
-
-	config.SetConfigName("configtx")
-	var cfgPath string
-
-	// Candidate paths to look for the config file in, based on GOPATH
-	searchPath := []string{
-		os.Getenv("ORDERER_CFG_PATH"),
-		os.Getenv("PEER_CFG_PATH"),
-	}
-
-	for _, p := range filepath.SplitList(os.Getenv("GOPATH")) {
-		searchPath = append(searchPath, filepath.Join(p, "src/github.com/hyperledger/fabric/common/configtx/tool/"))
-	}
-
-	for _, path := range searchPath {
-		if len(path) == 0 {
-			// No point printing a "checking for" message below for an empty path
-			continue
-		}
-		logger.Infof("Looking for %s in: %s", configFileName, path)
-		if _, err := os.Stat(filepath.Join(path, configFileName)); err != nil {
-			// The YAML file does not exist in this component of the path
-			continue
-		}
-		cfgPath = path
-		logger.Infof("Found %s there", configFileName)
-		break
-	}
-
-	if cfgPath == "" {
-		logger.Fatalf("Could not find %s in paths of %s."+
-			"Try setting ORDERER_CFG_PATH, PEER_CFG_PATH, or GOPATH correctly.",
-			configFileName, searchPath)
-	}
-
-	// Path to look for the config file in
-	config.AddConfigPath(cfgPath)
-
-	// For environment variables
-	config.SetEnvPrefix(Prefix)
-	config.AutomaticEnv()
-	// This replacer allows substitution within the particular profile without having to fully qualify the name
-	replacer := strings.NewReplacer(strings.ToUpper(fmt.Sprintf("profiles.%s.", profile)), "", ".", "_")
-	config.SetEnvKeyReplacer(replacer)
-
-	err := config.ReadInConfig()
-	if err != nil {
-		logger.Panicf("Error reading configuration from %s in %s: %s", configFileName, cfgPath, err)
-	}
-
-	var uconf TopLevel
-	err = viperutil.EnhancedExactUnmarshal(config, &uconf)
-	if err != nil {
-		logger.Panicf("Error unmarshaling config into struct: %s", err)
-	}
-
-	result, ok := uconf.Profiles[profile]
-	if !ok {
-		logger.Panicf("Could not find profile %s", profile)
-	}
-
-	result.completeInitialization()
-
-	return result
+func translatePaths(configDir string, org *Organization) {
+	cf.TranslatePathInPlace(configDir, &org.MSPDir)
+	cf.TranslatePathInPlace(configDir, &org.BCCSP.SwOpts.FileKeystore.KeyStorePath)
 }

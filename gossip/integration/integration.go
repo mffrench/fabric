@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/gossip"
 	"github.com/hyperledger/fabric/gossip/identity"
@@ -40,7 +41,7 @@ func newConfig(selfEndpoint string, externalEndpoint string, bootPeers ...string
 
 	var cert *tls.Certificate
 	if viper.GetBool("peer.tls.enabled") {
-		certTmp, err := tls.LoadX509KeyPair(viper.GetString("peer.tls.cert.file"), viper.GetString("peer.tls.key.file"))
+		certTmp, err := tls.LoadX509KeyPair(config.GetPath("peer.tls.cert.file"), config.GetPath("peer.tls.key.file"))
 		if err != nil {
 			panic(err)
 		}
@@ -69,12 +70,15 @@ func newConfig(selfEndpoint string, externalEndpoint string, bootPeers ...string
 }
 
 // NewGossipComponent creates a gossip component that attaches itself to the given gRPC server
-func NewGossipComponent(peerIdentity []byte, endpoint string, s *grpc.Server, secAdv api.SecurityAdvisor, cryptSvc api.MessageCryptoService, idMapper identity.Mapper, dialOpts []grpc.DialOption, bootPeers ...string) gossip.Gossip {
+func NewGossipComponent(peerIdentity []byte, endpoint string, s *grpc.Server,
+	secAdv api.SecurityAdvisor, cryptSvc api.MessageCryptoService, idMapper identity.Mapper,
+	secureDialOpts api.PeerSecureDialOpts, bootPeers ...string) gossip.Gossip {
 
 	externalEndpoint := viper.GetString("peer.gossip.externalEndpoint")
 
 	conf := newConfig(endpoint, externalEndpoint, bootPeers...)
-	gossipInstance := gossip.NewGossipService(conf, s, secAdv, cryptSvc, idMapper, peerIdentity, dialOpts...)
+	gossipInstance := gossip.NewGossipService(conf, s, secAdv, cryptSvc, idMapper,
+		peerIdentity, secureDialOpts)
 
 	return gossipInstance
 }

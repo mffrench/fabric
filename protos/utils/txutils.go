@@ -50,7 +50,7 @@ func GetPayloads(txActions *peer.TransactionAction) (*peer.ChaincodeActionPayloa
 	}
 
 	if pRespPayload.Extension == nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("response payload is missing extension")
 	}
 
 	respPayload := &peer.ChaincodeAction{}
@@ -210,7 +210,7 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 }
 
 // CreateProposalResponse creates a proposal response.
-func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, visibility []byte, signingEndorser msp.SigningIdentity) (*peer.ProposalResponse, error) {
+func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity) (*peer.ProposalResponse, error) {
 	hdr, err := GetHeader(hdrbytes)
 	if err != nil {
 		return nil, err
@@ -223,7 +223,7 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	}
 
 	// get the bytes of the proposal response payload - we need to sign them
-	prpBytes, err := GetBytesProposalResponsePayload(pHashBytes, response, results, events)
+	prpBytes, err := GetBytesProposalResponsePayload(pHashBytes, response, results, events, ccid)
 	if err != nil {
 		return nil, errors.New("Failure while unmarshalling the ProposalResponsePayload")
 	}
@@ -270,6 +270,26 @@ func GetSignedProposal(prop *peer.Proposal, signer msp.SigningIdentity) (*peer.S
 	return &peer.SignedProposal{ProposalBytes: propBytes, Signature: signature}, nil
 }
 
+// GetSignedEvent returns a signed event given an Event message and a signing identity
+func GetSignedEvent(evt *peer.Event, signer msp.SigningIdentity) (*peer.SignedEvent, error) {
+	// check for nil argument
+	if evt == nil || signer == nil {
+		return nil, errors.New("nil arguments")
+	}
+
+	evtBytes, err := proto.Marshal(evt)
+	if err != nil {
+		return nil, err
+	}
+
+	signature, err := signer.Sign(evtBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &peer.SignedEvent{EventBytes: evtBytes, Signature: signature}, nil
+}
+
 // MockSignedEndorserProposalOrPanic creates a SignedProposal with the passed arguments
 func MockSignedEndorserProposalOrPanic(chainID string, cs *peer.ChaincodeSpec, creator, signature []byte) (*peer.SignedProposal, *peer.Proposal) {
 	prop, _, err := CreateChaincodeProposal(
@@ -287,6 +307,29 @@ func MockSignedEndorserProposalOrPanic(chainID string, cs *peer.ChaincodeSpec, c
 	}
 
 	return &peer.SignedProposal{ProposalBytes: propBytes, Signature: signature}, prop
+}
+
+func MockSignedEndorserProposal2OrPanic(chainID string, cs *peer.ChaincodeSpec, signer msp.SigningIdentity) (*peer.SignedProposal, *peer.Proposal) {
+	serializedSigner, err := signer.Serialize()
+	if err != nil {
+		panic(err)
+	}
+
+	prop, _, err := CreateChaincodeProposal(
+		common.HeaderType_ENDORSER_TRANSACTION,
+		chainID,
+		&peer.ChaincodeInvocationSpec{ChaincodeSpec: &peer.ChaincodeSpec{}},
+		serializedSigner)
+	if err != nil {
+		panic(err)
+	}
+
+	sProp, err := GetSignedProposal(prop, signer)
+	if err != nil {
+		panic(err)
+	}
+
+	return sProp, prop
 }
 
 // GetBytesProposalPayloadForTx takes a ChaincodeProposalPayload and returns its serialized

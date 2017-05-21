@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/hyperledger/fabric/bccsp/factory"
+	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/identity"
@@ -43,7 +44,8 @@ import (
 )
 
 func init() {
-	rand.Seed(42)
+	util.SetupTestLogging()
+	rand.Seed(time.Now().UnixNano())
 	factory.InitFactories(nil)
 }
 
@@ -70,7 +72,7 @@ func (*naiveSecProvider) GetPKIidOfCert(peerIdentity api.PeerIdentityType) commo
 
 // VerifyBlock returns nil if the block is properly signed,
 // else returns error
-func (*naiveSecProvider) VerifyBlock(chainID common.ChainID, signedBlock []byte) error {
+func (*naiveSecProvider) VerifyBlock(chainID common.ChainID, seqNum uint64, signedBlock []byte) error {
 	return nil
 }
 
@@ -103,16 +105,18 @@ func (*naiveSecProvider) VerifyByChannel(_ common.ChainID, _ api.PeerIdentityTyp
 
 func newCommInstance(port int, sec api.MessageCryptoService) (Comm, error) {
 	endpoint := fmt.Sprintf("localhost:%d", port)
-	inst, err := NewCommInstanceWithServer(port, identity.NewIdentityMapper(sec), []byte(endpoint))
+	inst, err := NewCommInstanceWithServer(port, identity.NewIdentityMapper(sec), []byte(endpoint), nil)
 	return inst, err
 }
 
 func handshaker(endpoint string, comm Comm, t *testing.T, sigMutator func([]byte) []byte, pkiIDmutator func([]byte) []byte, mutualTLS bool) <-chan proto.ReceivedMessage {
 	c := &commImpl{}
-	err := generateCertificates("key.pem", "cert.pem")
+	err := GenerateCertificates("key.pem", "cert.pem")
+	assert.NoError(t, err, "%v", err)
 	defer os.Remove("cert.pem")
 	defer os.Remove("key.pem")
 	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+	assert.NoError(t, err, "%v", err)
 	tlsCfg := &tls.Config{
 		InsecureSkipVerify: true,
 	}
@@ -187,12 +191,12 @@ func handshaker(endpoint string, comm Comm, t *testing.T, sigMutator func([]byte
 func TestViperConfig(t *testing.T) {
 	viper.SetConfigName("core")
 	viper.SetEnvPrefix("CORE")
-	viper.AddConfigPath("./../../peer")
+	config.AddDevConfigPath(nil)
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	err := viper.ReadInConfig()
 	if err != nil { // Handle errors reading the config file
-		panic(fmt.Errorf("Fatal error config file: %s \n", err))
+		panic(fmt.Errorf("fatal error config file: %s", err))
 	}
 
 	assert.Equal(t, time.Duration(2)*time.Second, util.GetDurationOrDefault("peer.gossip.connTimeout", 0))
@@ -255,13 +259,14 @@ func TestHandshake(t *testing.T) {
 	case <-time.After(time.Second * 10):
 		assert.Fail(t, "skipHandshake flag should have authorized the authentication")
 	}
-
 }
 
 func TestBasic(t *testing.T) {
 	t.Parallel()
 	comm1, _ := newCommInstance(2000, naiveSec)
 	comm2, _ := newCommInstance(3000, naiveSec)
+	comm1.(*commImpl).SetDialOpts()
+	comm2.(*commImpl).SetDialOpts()
 	defer comm1.Stop()
 	defer comm2.Stop()
 	m1 := comm1.Accept(acceptAll)
@@ -279,6 +284,49 @@ func TestBasic(t *testing.T) {
 	waitForMessages(t, out, 2, "Didn't receive 2 messages")
 }
 
+func TestProdConstructor(t *testing.T) {
+	t.Parallel()
+	keyFileName := fmt.Sprintf("key.%d.pem", util.RandomUInt64())
+	certFileName := fmt.Sprintf("cert.%d.pem", util.RandomUInt64())
+
+	GenerateCertificates(keyFileName, certFileName)
+	cert, _ := tls.LoadX509KeyPair(certFileName, keyFileName)
+	os.Remove(keyFileName)
+	os.Remove(certFileName)
+	srv, lsnr, dialOpts, certHash := createGRPCLayer(20000)
+	defer srv.Stop()
+	defer lsnr.Close()
+	comm1, _ := NewCommInstance(srv, &cert, identity.NewIdentityMapper(naiveSec), []byte("localhost:20000"), dialOpts)
+	comm1.(*commImpl).selfCertHash = certHash
+	go srv.Serve(lsnr)
+
+	GenerateCertificates(keyFileName, certFileName)
+	cert, _ = tls.LoadX509KeyPair(certFileName, keyFileName)
+	os.Remove(keyFileName)
+	os.Remove(certFileName)
+	srv, lsnr, dialOpts, certHash = createGRPCLayer(30000)
+	defer srv.Stop()
+	defer lsnr.Close()
+	comm2, _ := NewCommInstance(srv, &cert, identity.NewIdentityMapper(naiveSec), []byte("localhost:30000"), dialOpts)
+	comm2.(*commImpl).selfCertHash = certHash
+	go srv.Serve(lsnr)
+	defer comm1.Stop()
+	defer comm2.Stop()
+	m1 := comm1.Accept(acceptAll)
+	m2 := comm2.Accept(acceptAll)
+	out := make(chan uint64, 2)
+	reader := func(ch <-chan proto.ReceivedMessage) {
+		m := <-ch
+		out <- m.GetGossipMessage().Nonce
+	}
+	go reader(m1)
+	go reader(m2)
+	comm1.Send(createGossipMsg(), remotePeer(30000))
+	time.Sleep(time.Second)
+	comm2.Send(createGossipMsg(), remotePeer(20000))
+	waitForMessages(t, out, 2, "Didn't receive 2 messages")
+}
+
 func TestGetConnectionInfo(t *testing.T) {
 	t.Parallel()
 	comm1, _ := newCommInstance(6000, naiveSec)
@@ -292,68 +340,63 @@ func TestGetConnectionInfo(t *testing.T) {
 		t.Fatal("Didn't receive a message in time")
 	case msg := <-m1:
 		assert.Equal(t, comm2.GetPKIid(), msg.GetConnectionInfo().ID)
+		assert.NotNil(t, msg.GetSourceEnvelope())
 	}
 }
 
-func TestBlackListPKIid(t *testing.T) {
+func TestCloseConn(t *testing.T) {
 	t.Parallel()
 	comm1, _ := newCommInstance(1611, naiveSec)
-	comm2, _ := newCommInstance(1612, naiveSec)
-	comm3, _ := newCommInstance(1613, naiveSec)
-	comm4, _ := newCommInstance(1614, naiveSec)
 	defer comm1.Stop()
-	defer comm2.Stop()
-	defer comm3.Stop()
-	defer comm4.Stop()
+	acceptChan := comm1.Accept(acceptAll)
 
-	reader := func(instance string, out chan uint64, in <-chan proto.ReceivedMessage) {
-		for {
-			msg := <-in
-			if msg == nil {
-				return
-			}
-			out <- msg.GetGossipMessage().Nonce
+	err := GenerateCertificates("key.pem", "cert.pem")
+	assert.NoError(t, err, "%v", err)
+	defer os.Remove("cert.pem")
+	defer os.Remove("key.pem")
+	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+	assert.NoError(t, err, "%v", err)
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: true,
+		Certificates:       []tls.Certificate{cert},
+	}
+	ta := credentials.NewTLS(tlsCfg)
+
+	conn, err := grpc.Dial("localhost:1611", grpc.WithTransportCredentials(&authCreds{tlsCreds: ta}), grpc.WithBlock(), grpc.WithTimeout(time.Second))
+	assert.NoError(t, err, "%v", err)
+	cl := proto.NewGossipClient(conn)
+	stream, err := cl.GossipStream(context.Background())
+	assert.NoError(t, err, "%v", err)
+	c := &commImpl{}
+	hash := certHashFromRawCert(tlsCfg.Certificates[0].Certificate[0])
+	connMsg := c.createConnectionMsg(common.PKIidType("pkiID"), hash, api.PeerIdentityType("pkiID"), func(msg []byte) ([]byte, error) {
+		mac := hmac.New(sha256.New, hmacKey)
+		mac.Write(msg)
+		return mac.Sum(nil), nil
+	})
+	assert.NoError(t, stream.Send(connMsg.Envelope))
+	stream.Send(createGossipMsg().Envelope)
+	select {
+	case <-acceptChan:
+	case <-time.After(time.Second):
+		assert.Fail(t, "Didn't receive a message within a timely period")
+	}
+	comm1.CloseConn(&RemotePeer{PKIID: common.PKIidType("pkiID")})
+	time.Sleep(time.Second * 10)
+	gotErr := false
+	msg2Send := createGossipMsg()
+	msg2Send.GetDataMsg().Payload = &proto.Payload{
+		Data: make([]byte, 1024*1024),
+	}
+	msg2Send.NoopSign()
+	for i := 0; i < defRecvBuffSize; i++ {
+		err := stream.Send(msg2Send.Envelope)
+		if err != nil {
+			gotErr = true
+			break
 		}
 	}
-
-	out1 := make(chan uint64, 4)
-	out2 := make(chan uint64, 4)
-	out3 := make(chan uint64, 4)
-	out4 := make(chan uint64, 4)
-
-	go reader("comm1", out1, comm1.Accept(acceptAll))
-	go reader("comm2", out2, comm2.Accept(acceptAll))
-	go reader("comm3", out3, comm3.Accept(acceptAll))
-	go reader("comm4", out4, comm4.Accept(acceptAll))
-
-	// have comm1 BL comm3
-	comm1.BlackListPKIid([]byte("localhost:1613"))
-
-	// make comm3 send to 1 and 2
-	comm3.Send(createGossipMsg(), remotePeer(1612)) // out2++
-	comm3.Send(createGossipMsg(), remotePeer(1611))
-
-	waitForMessages(t, out2, 1, "comm2 should have received 1 message")
-
-	// make comm1 and comm2 send to comm3
-	comm1.Send(createGossipMsg(), remotePeer(1613))
-	comm2.Send(createGossipMsg(), remotePeer(1613)) // out3++
-	waitForMessages(t, out3, 1, "comm3 should have received 1 message")
-
-	// make comm1 and comm2 send to comm4 which is not blacklisted		// out4 += 4
-	comm1.Send(createGossipMsg(), remotePeer(1614))
-	comm2.Send(createGossipMsg(), remotePeer(1614))
-	comm1.Send(createGossipMsg(), remotePeer(1614))
-	comm2.Send(createGossipMsg(), remotePeer(1614))
-
-	// blacklist comm3 by comm2
-	comm2.BlackListPKIid([]byte("localhost:1613"))
-
-	// send from comm1 and comm2 to comm3 again
-	comm1.Send(createGossipMsg(), remotePeer(1613)) // shouldn't have an effect
-	comm2.Send(createGossipMsg(), remotePeer(1613)) // shouldn't have an effect
-
-	waitForMessages(t, out4, 4, "comm1 should have received 4 messages")
+	assert.True(t, gotErr, "Should have failed because connection is closed")
 }
 
 func TestParallelSend(t *testing.T) {
@@ -389,10 +432,8 @@ func TestParallelSend(t *testing.T) {
 			if c == messages2Send {
 				waiting = false
 			}
-			break
 		case <-ticker.C:
 			waiting = false
-			break
 		}
 	}
 	assert.Equal(t, messages2Send, c)
@@ -621,10 +662,8 @@ func waitForMessages(t *testing.T, msgChan chan uint64, count int, errMsg string
 			if c == count {
 				waiting = false
 			}
-			break
 		case <-ticker.C:
 			waiting = false
-			break
 		}
 	}
 	assert.Equal(t, count, c, errMsg)

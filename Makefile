@@ -19,14 +19,18 @@
 #   - all (default) - builds all targets and runs all tests/checks
 #   - checks - runs all tests/checks
 #   - configtxgen - builds a native configtxgen binary
+#   - cryptogen  -  builds a native cryptogen binary
 #   - peer - builds a native fabric peer binary
 #   - orderer - builds a native fabric orderer binary
+#   - release - builds release packages for the host platform
+#   - release-all - builds release packages for all target platforms
 #   - unit-test - runs the go-test based unit tests
 #   - test-cmd - generates a "go test" string suitable for manual customization
 #   - behave - runs the behave test
 #   - behave-deps - ensures pre-requisites are available for running behave manually
 #   - gotools - installs go tools like golint
 #   - linter - runs all code checks
+#   - license - checks go sourrce files for Apache license header
 #   - native - ensures all native binaries are available
 #   - docker[-clean] - ensures all docker images are available[/cleaned]
 #   - peer-docker[-clean] - ensures the peer container is available[/cleaned]
@@ -37,7 +41,8 @@
 #   - unit-test-clean - cleans unit test state (particularly from docker)
 
 PROJECT_NAME   = hyperledger/fabric
-BASE_VERSION   = 1.0.0
+BASE_VERSION   = 1.0.0-alpha3
+PREV_VERSION   = 1.0.0-alpha2
 IS_RELEASE     = false
 
 ifneq ($(IS_RELEASE),true)
@@ -75,12 +80,12 @@ K := $(foreach exec,$(EXECUTABLES),\
 GOSHIM_DEPS = $(shell ./scripts/goListFiles.sh $(PKGNAME)/core/chaincode/shim)
 JAVASHIM_DEPS =  $(shell git ls-files core/chaincode/shim/java)
 PROTOS = $(shell git ls-files *.proto | grep -v vendor)
-MSP_SAMPLECONFIG = $(shell git ls-files msp/sampleconfig/*)
 PROJECT_FILES = $(shell git ls-files)
 IMAGES = peer orderer ccenv javaenv buildenv testenv zookeeper kafka couchdb
 RELEASE_PLATFORMS = windows-amd64 darwin-amd64 linux-amd64 linux-ppc64le linux-s390x
 RELEASE_PKGS = configtxgen cryptogen
 
+pkgmap.cryptogen      := $(PKGNAME)/common/tools/cryptogen
 pkgmap.configtxgen    := $(PKGNAME)/common/configtx/tool/configtxgen
 pkgmap.peer           := $(PKGNAME)/peer
 pkgmap.orderer        := $(PKGNAME)/orderer
@@ -91,7 +96,13 @@ include docker-env.mk
 
 all: native docker checks
 
-checks: linter unit-test behave
+checks: linter license spelling unit-test behave
+
+spelling: buildenv
+	@scripts/check_spelling.sh
+
+license: buildenv
+	@scripts/check_license.sh
 
 .PHONY: gotools
 gotools:
@@ -117,6 +128,8 @@ orderer-docker: build/image/orderer/$(DUMMY)
 configtxgen: GO_TAGS+= nopkcs11
 configtxgen: build/bin/configtxgen
 
+cryptogen: build/bin/cryptogen
+
 javaenv: build/image/javaenv/$(DUMMY)
 
 buildenv: build/image/buildenv/$(DUMMY)
@@ -136,9 +149,9 @@ test-cmd:
 	@echo "go test -ldflags \"$(GO_LDFLAGS)\""
 
 docker: $(patsubst %,build/image/%/$(DUMMY), $(IMAGES))
-native: peer orderer
+native: peer orderer configtxgen cryptogen
 
-BEHAVE_ENVIRONMENTS = kafka orderer orderer-1-kafka-1 orderer-1-kafka-3
+BEHAVE_ENVIRONMENTS = kafka orderer-1-kafka-1 orderer-1-kafka-3
 BEHAVE_ENVIRONMENT_TARGETS = $(patsubst %,bddtests/environments/%, $(BEHAVE_ENVIRONMENTS))
 .PHONY: behave-environments $(BEHAVE_ENVIRONMENT_TARGETS)
 behave-environments: $(BEHAVE_ENVIRONMENT_TARGETS)
@@ -190,6 +203,9 @@ build/docker/sbin/%: $(PROJECT_FILES)
 build/bin:
 	mkdir -p $@
 
+changelog:
+	./scripts/changelog.sh v$(PREV_VERSION) v$(BASE_VERSION)
+
 build/docker/gotools/bin/protoc-gen-go: build/docker/gotools
 
 build/docker/gotools: gotools/Makefile
@@ -219,23 +235,14 @@ build/image/javaenv/payload:    build/javashim.tar.bz2 \
 				build/protos.tar.bz2 \
 				settings.gradle
 build/image/peer/payload:       build/docker/bin/peer \
-				build/docker/sbin/configtxgen \
-				peer/core.yaml \
-				build/msp-sampleconfig.tar.bz2 \
-				common/configtx/tool/configtx.yaml
+				build/sampleconfig.tar.bz2
 build/image/orderer/payload:    build/docker/bin/orderer \
-				build/docker/sbin/configtxgen \
-				build/msp-sampleconfig.tar.bz2 \
-				orderer/orderer.yaml \
-				common/configtx/tool/configtx.yaml
+				build/sampleconfig.tar.bz2
 build/image/buildenv/payload:   build/gotools.tar.bz2 \
 				build/docker/gotools/bin/protoc-gen-go
 build/image/testenv/payload:    build/docker/bin/orderer \
-				orderer/orderer.yaml \
-				common/configtx/tool/configtx.yaml \
 				build/docker/bin/peer \
-				peer/core.yaml \
-				build/msp-sampleconfig.tar.bz2 \
+				build/sampleconfig.tar.bz2 \
 				images/testenv/install-softhsm2.sh
 build/image/zookeeper/payload:  images/zookeeper/docker-entrypoint.sh
 build/image/kafka/payload:      images/kafka/docker-entrypoint.sh \
@@ -274,9 +281,11 @@ build/goshim.tar.bz2: $(GOSHIM_DEPS)
 	@echo "Creating $@"
 	@tar -jhc -C $(GOPATH)/src $(patsubst $(GOPATH)/src/%,%,$(GOSHIM_DEPS)) > $@
 
+build/sampleconfig.tar.bz2:
+	(cd sampleconfig && tar -jc *) > $@
+
 build/javashim.tar.bz2: $(JAVASHIM_DEPS)
 build/protos.tar.bz2: $(PROTOS)
-build/msp-sampleconfig.tar.bz2: $(MSP_SAMPLECONFIG)
 
 build/%.tar.bz2:
 	@echo "Creating $@"

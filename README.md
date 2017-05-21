@@ -8,6 +8,7 @@ This project is an _Active_ Hyperledger project. For more information on the his
 the [Hyperledger Project Lifecycle document](https://wiki.hyperledger.org/community/project-lifecycle).
 
 [![Build Status](https://jenkins.hyperledger.org/buildStatus/icon?job=fabric-merge-x86_64)](https://jenkins.hyperledger.org/view/fabric/job/fabric-merge-x86_64/)
+[![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/955/badge)](https://bestpractices.coreinfrastructure.org/projects/955)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hyperledger/fabric)](https://goreportcard.com/report/github.com/hyperledger/fabric)
 [![GoDoc](https://godoc.org/github.com/hyperledger/fabric?status.svg)](https://godoc.org/github.com/hyperledger/fabric)
 [![Documentation Status](https://readthedocs.org/projects/hyperledger-fabric/badge/?version=latest)](http://hyperledger-fabric.readthedocs.io/en/latest/?badge=latest)
@@ -28,7 +29,7 @@ information on getting started using and developing with the fabric, SDK and cha
 ## Contributing
 
 We welcome contributions to the Hyperledger Project in many forms. There’s always plenty to do!
-Full details of how to contribute to this project are documented [here](http://hyperledger-fabric.readthedocs.io/en/latest/CONTRIBUTING/).
+Check [the documentation on how to contribute to this project](http://hyperledger-fabric.readthedocs.io/en/latest/CONTRIBUTING.html) for the full details.
 
 ## Community
 
@@ -37,6 +38,8 @@ Full details of how to contribute to this project are documented [here](http://h
 [Hyperledger mailing lists and archives](http://lists.hyperledger.org/)
 
 [Hyperledger Chat](http://chat.hyperledger.org/channel/fabric)
+
+[Hyperledger Fabric Issue Tracking](https://jira.hyperledger.org/secure/Dashboard.jspa?selectPageId=10104)
 
 [Hyperledger Wiki](https://wiki.hyperledger.org/)
 

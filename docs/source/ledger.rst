@@ -65,8 +65,8 @@ database. If the data that was read has been changed by another transaction, the
 transaction in the block is marked as invalid and is not applied to the ledger state database.
 The client application is alerted, and can handle the error or retry as appropriate.
 
-See the :doc:`txflow` and :doc:`readwrite` topics for a deeper dive on transaction structure, 
-concurrency control, and the state DB.  
+See the :doc:`txflow` and :doc:`readwrite` topics for a deeper dive on transaction structure,
+concurrency control, and the state DB.
 
 State Database options
 ----------------------
@@ -104,6 +104,6 @@ default embedded LevelDB, and move to CouchDB if you require the additional comp
 It is a good practice to model chaincode asset data as JSON, so that you have the option to perform
 complex rich queries if needed in the future.
 
-To enable CouchDB as the state database, configure the /fabric/peer/core.yaml ``stateDatabase``
+To enable CouchDB as the state database, configure the /fabric/sampleconfig/core.yaml ``stateDatabase``
 section.
 

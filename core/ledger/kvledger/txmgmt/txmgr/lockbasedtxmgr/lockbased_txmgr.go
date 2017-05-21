@@ -19,16 +19,16 @@ package lockbasedtxmgr
 import (
 	"sync"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/validator"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/validator/statebasedval"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/version"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/op/go-logging"
 )
 
-var logger = logging.MustGetLogger("lockbasedtxmgr")
+var logger = flogging.MustGetLogger("lockbasedtxmgr")
 
 // LockBasedTxMgr a simple implementation of interface `txmgmt.TxMgr`.
 // This implementation uses a read-write lock to prevent conflicts between transaction simulation and committing
@@ -89,13 +89,13 @@ func (txmgr *LockBasedTxMgr) Commit() error {
 	logger.Debugf("Committing updates to state database")
 	txmgr.commitRWLock.Lock()
 	defer txmgr.commitRWLock.Unlock()
-	logger.Debugf("Write lock aquired for committing updates to state database")
+	logger.Debugf("Write lock acquired for committing updates to state database")
 	if txmgr.batch == nil {
 		panic("validateAndPrepare() method should have been called before calling commit()")
 	}
 	defer func() { txmgr.batch = nil }()
 	if err := txmgr.db.ApplyUpdates(txmgr.batch,
-		version.NewHeight(txmgr.currentBlock.Header.Number, uint64(len(txmgr.currentBlock.Data.Data)))); err != nil {
+		version.NewHeight(txmgr.currentBlock.Header.Number, uint64(len(txmgr.currentBlock.Data.Data)-1))); err != nil {
 		return err
 	}
 	logger.Debugf("Updates committed to state database")

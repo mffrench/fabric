@@ -341,19 +341,6 @@ func (handler *Handler) beforeTransaction(e *fsm.Event) {
 	}
 }
 
-// afterCompleted will need to handle COMPLETED event by sending message to the peer
-func (handler *Handler) afterCompleted(e *fsm.Event) {
-	msg, ok := e.Args[0].(*pb.ChaincodeMessage)
-	if !ok {
-		e.Cancel(fmt.Errorf("Received unexpected message type"))
-		return
-	}
-	chaincodeLogger.Debugf("[%s]sending COMPLETED to validator for tid", shorttxid(msg.Txid))
-	if err := handler.serialSend(msg); err != nil {
-		e.Cancel(fmt.Errorf("send COMPLETED failed %s", err))
-	}
-}
-
 // afterResponse is called to deliver a response or error to the chaincode stub.
 func (handler *Handler) afterResponse(e *fsm.Event) {
 	msg, ok := e.Args[0].(*pb.ChaincodeMessage)
@@ -550,7 +537,7 @@ func (handler *Handler) handleGetStateByRange(startKey, endKey string, txid stri
 	}
 
 	// Incorrect chaincode message received
-	chaincodeLogger.Errorf("Incorrect chaincode message %s recieved. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	chaincodeLogger.Errorf("Incorrect chaincode message %s received. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return nil, errors.New("Incorrect chaincode message received")
 }
 
@@ -598,7 +585,7 @@ func (handler *Handler) handleQueryStateNext(id, txid string) (*pb.QueryResponse
 	}
 
 	// Incorrect chaincode message received
-	chaincodeLogger.Errorf("Incorrect chaincode message %s recieved. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	chaincodeLogger.Errorf("Incorrect chaincode message %s received. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return nil, errors.New("Incorrect chaincode message received")
 }
 
@@ -646,7 +633,7 @@ func (handler *Handler) handleQueryStateClose(id, txid string) (*pb.QueryRespons
 	}
 
 	// Incorrect chaincode message received
-	chaincodeLogger.Errorf("Incorrect chaincode message %s recieved. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	chaincodeLogger.Errorf("Incorrect chaincode message %s received. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return nil, errors.New("Incorrect chaincode message received")
 }
 
@@ -694,7 +681,7 @@ func (handler *Handler) handleGetQueryResult(query string, txid string) (*pb.Que
 	}
 
 	// Incorrect chaincode message received
-	chaincodeLogger.Errorf("Incorrect chaincode message %s recieved. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	chaincodeLogger.Errorf("Incorrect chaincode message %s received. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return nil, errors.New("Incorrect chaincode message received")
 }
 
@@ -742,7 +729,7 @@ func (handler *Handler) handleGetHistoryForKey(key string, txid string) (*pb.Que
 	}
 
 	// Incorrect chaincode message received
-	chaincodeLogger.Errorf("Incorrect chaincode message %s recieved. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	chaincodeLogger.Errorf("Incorrect chaincode message %s received. Expecting %s or %s", responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return nil, errors.New("Incorrect chaincode message received")
 }
 

@@ -15,12 +15,9 @@ chaincode as a Docker container.
 
 The following instructions apply to *developing* chaincode in Go or
 Java. They do not apply to running in a production environment. However,
-if *developing* chaincode in Java, please see the `Java chaincode
-setup <https://github.com/hyperledger/fabric/blob/master/docs/Setup/JAVAChaincode.md>`__
+if *developing* chaincode in Java, please see the :doc:`Java chaincode
+setup <JAVAChaincode>`
 instructions first, to be sure your environment is properly configured.
-
-**Note:** We have added support for `System
-chaincode <https://github.com/hyperledger/fabric/blob/master/docs/SystemChaincode-noop.md>`__.
 
 Choices
 -------
@@ -29,8 +26,7 @@ Once again, you have the choice of using one of the following
 approaches:
 
 -  `Option 1 <#option-1-vagrant-development-environment>`__ using the
-   **Vagrant** `development
-   environment <https://github.com/hyperledger/fabric/blob/master/docs/dev-setup/devenv.md>`__
+   **Vagrant** :doc:`development environment <../dev-setup/devenv>`
    that is used for developing the fabric itself
 -  `Option 2 <#option-2-docker-for-mac-or-windows>`__ using Docker for
    Mac or Windows
@@ -328,8 +324,7 @@ when security is
 enabled <#removing-temporary-files-when-security-is-enabled>`__ to learn
 how to clean up the temporary files.
 
-See the `logging
-control <https://github.com/hyperledger/fabric/blob/master/docs/Setup/logging-control.md>`__
+See the :doc:`logging control <logging-control>`
 reference for information on controlling logging output from the
 ``peer`` and chaincodes.
 
@@ -340,7 +335,7 @@ Terminal 3 (CLI or REST API)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The default REST interface port is ``7050``. It can be configured in
-`core.yaml <https://github.com/hyperledger/fabric/blob/master/peer/core.yaml>`__
+`core.yaml <https://github.com/hyperledger/fabric/blob/master/sampleconfig/core.yaml>`__
 using the ``rest.address`` property. If using Vagrant, the REST port
 mapping is defined in
 `Vagrantfile <https://github.com/hyperledger/fabric/blob/master/devenv/Vagrantfile>`__.

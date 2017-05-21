@@ -66,7 +66,7 @@ func TestComputeDeltaSet(t *testing.T) {
 	writeSet["2"] = comparable{ConfigValue: &cb.ConfigValue{Version: 1}}
 	writeSet["3"] = comparable{}
 
-	result := computeDeltaSet(readSet, writeSet)
+	result := ComputeDeltaSet(readSet, writeSet)
 	assert.Len(t, result, 2, "Should have two values in the delta set")
 	assert.NotNil(t, result["2"], "Element had version increased")
 	assert.NotNil(t, result["3"], "Element was new")
@@ -155,7 +155,7 @@ func TestPolicyForItem(t *testing.T) {
 			ModPolicy: "rootPolicy",
 		},
 	})
-	assert.False(t, ok, "Should not have found rootPolicy off a non-existant manager")
+	assert.False(t, ok, "Should not have found rootPolicy off a non-existent manager")
 
 	policy, ok = cm.policyForItem(comparable{
 		path: []string{"root", "foo"},

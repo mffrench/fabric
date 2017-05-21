@@ -18,6 +18,7 @@ package pull
 
 import (
 	"fmt"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ var pullInterval time.Duration
 var timeoutInterval = 20 * time.Second
 
 func init() {
+	util.SetupTestLogging()
 	pullInterval = time.Duration(500) * time.Millisecond
 	algo.SetDigestWaitTime(pullInterval / 5)
 	algo.SetRequestWaitTime(pullInterval)
@@ -106,6 +108,10 @@ func (p *pullInstance) wrapPullMsg(msg *proto.SignedGossipMessage) proto.Receive
 }
 
 func createPullInstance(endpoint string, peer2PullInst map[string]*pullInstance) *pullInstance {
+	return createPullInstanceWithFilters(endpoint, peer2PullInst, nil)
+}
+
+func createPullInstanceWithFilters(endpoint string, peer2PullInst map[string]*pullInstance, df DigestFilter) *pullInstance {
 	inst := &pullInstance{
 		items:         util.NewSet(),
 		stopChan:      make(chan struct{}),
@@ -116,7 +122,7 @@ func createPullInstance(endpoint string, peer2PullInst map[string]*pullInstance)
 
 	peer2PullInst[endpoint] = inst
 
-	conf := PullConfig{
+	conf := Config{
 		MsgType:           proto.PullMsgType_BLOCK_MSG,
 		Channel:           []byte(""),
 		ID:                endpoint,
@@ -137,7 +143,14 @@ func createPullInstance(endpoint string, peer2PullInst map[string]*pullInstance)
 	blockConsumer := func(msg *proto.SignedGossipMessage) {
 		inst.items.Add(msg.GetDataMsg().Payload.SeqNum)
 	}
-	inst.mediator = NewPullMediator(conf, inst, inst, seqNumFromMsg, blockConsumer)
+	adapter := &PullAdapter{
+		Sndr:        inst,
+		MemSvc:      inst,
+		IdExtractor: seqNumFromMsg,
+		MsgCons:     blockConsumer,
+		DigFilter:   df,
+	}
+	inst.mediator = NewPullMediator(conf, adapter)
 	go func() {
 		for {
 			select {
@@ -167,7 +180,7 @@ func TestRegisterMsgHook(t *testing.T) {
 
 	receivedMsgTypes := util.NewSet()
 
-	for _, msgType := range []PullMsgType{HelloMsgType, DigestMsgType, RequestMsgType, ResponseMsgType} {
+	for _, msgType := range []MsgType{HelloMsgType, DigestMsgType, RequestMsgType, ResponseMsgType} {
 		mType := msgType
 		inst1.mediator.RegisterMsgHook(mType, func(_ []string, items []*proto.SignedGossipMessage, _ proto.ReceivedMessage) {
 			receivedMsgTypes.Add(mType)
@@ -180,6 +193,41 @@ func TestRegisterMsgHook(t *testing.T) {
 	// Ensure all message types are received
 	waitUntilOrFail(t, func() bool { return len(receivedMsgTypes.ToArray()) == 4 })
 
+}
+
+func TestFilter(t *testing.T) {
+	t.Parallel()
+	peer2pullInst := make(map[string]*pullInstance)
+
+	eq := func(a interface{}, b interface{}) bool {
+		return a == b
+	}
+	df := func(msg proto.ReceivedMessage) func(string) bool {
+		if msg.GetGossipMessage().IsDataReq() {
+			req := msg.GetGossipMessage().GetDataReq()
+			return func(item string) bool {
+				return util.IndexInSlice(req.Digests, item, eq) != -1
+			}
+		}
+		return func(digestItem string) bool {
+			n, _ := strconv.ParseInt(digestItem, 10, 64)
+			return n%2 == 0
+		}
+	}
+	inst1 := createPullInstanceWithFilters("localhost:5611", peer2pullInst, df)
+	inst2 := createPullInstance("localhost:5612", peer2pullInst)
+	defer inst1.stop()
+	defer inst2.stop()
+
+	inst1.mediator.Add(dataMsg(0))
+	inst1.mediator.Add(dataMsg(1))
+	inst1.mediator.Add(dataMsg(2))
+	inst1.mediator.Add(dataMsg(3))
+
+	waitUntilOrFail(t, func() bool { return inst2.items.Exists(uint64(0)) })
+	waitUntilOrFail(t, func() bool { return inst2.items.Exists(uint64(2)) })
+	assert.False(t, inst2.items.Exists(uint64(1)))
+	assert.False(t, inst2.items.Exists(uint64(3)))
 }
 
 func TestAddAndRemove(t *testing.T) {
@@ -203,8 +251,8 @@ func TestAddAndRemove(t *testing.T) {
 	waitUntilOrFail(t, func() bool { return len(inst2.items.ToArray()) == msgCount })
 
 	// Remove message 0 from both instances
-	inst2.mediator.Remove(dataMsg(0))
-	inst1.mediator.Remove(dataMsg(0))
+	inst2.mediator.Remove("0")
+	inst1.mediator.Remove("0")
 	inst2.items.Remove(uint64(0))
 
 	// Add a message to inst1
@@ -284,7 +332,6 @@ func dataMsg(seqNum int) *proto.SignedGossipMessage {
 			DataMsg: &proto.DataMessage{
 				Payload: &proto.Payload{
 					Data:   []byte{},
-					Hash:   "",
 					SeqNum: uint64(seqNum),
 				},
 			},

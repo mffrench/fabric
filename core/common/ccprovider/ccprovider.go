@@ -21,17 +21,17 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/golang/protobuf/proto"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/ledger"
 	pb "github.com/hyperledger/fabric/protos/peer"
-
-	logging "github.com/op/go-logging"
 )
 
-var ccproviderLogger = logging.MustGetLogger("ccprovider")
+var ccproviderLogger = flogging.MustGetLogger("ccprovider")
 
 var chaincodeInstallPath string
 
@@ -99,8 +99,35 @@ func GetChaincodePackage(ccname string, ccversion string) ([]byte, error) {
 	return ccbytes, nil
 }
 
+//ChaincodePackageExists returns whether the chaincode package exists in the file system
+func ChaincodePackageExists(ccname string, ccversion string) (bool, error) {
+	path := filepath.Join(chaincodeInstallPath, ccname+"."+ccversion)
+	_, err := os.Stat(path)
+	if err == nil {
+		// chaincodepackage already exists
+		return true, nil
+	}
+	return false, err
+}
+
+// CCInfoProvider is responsible to provide backend storage for information
+// about chaincodes. Multiple implementations can persist data to a file system
+// or store them in a cache
+type CCInfoProvider interface {
+	// GetChaincode returns information for the chaincode with the
+	// supplied name and version
+	GetChaincode(ccname string, ccversion string) (CCPackage, error)
+
+	// PutChaincode stores the supplied chaincode info
+	PutChaincode(depSpec *pb.ChaincodeDeploymentSpec) (CCPackage, error)
+}
+
+// CCInfoFSStorageMgr is an implementation of CCInfoProvider
+// backed by the file system
+type CCInfoFSImpl struct{}
+
 // GetChaincodeFromFS this is a wrapper for hiding package implementation.
-func GetChaincodeFromFS(ccname string, ccversion string) (CCPackage, error) {
+func (*CCInfoFSImpl) GetChaincode(ccname string, ccversion string) (CCPackage, error) {
 	//try raw CDS
 	cccdspack := &CDSPackage{}
 	_, _, err := cccdspack.InitFromFS(ccname, ccversion)
@@ -118,16 +145,76 @@ func GetChaincodeFromFS(ccname string, ccversion string) (CCPackage, error) {
 
 // PutChaincodeIntoFS is a wrapper for putting raw ChaincodeDeploymentSpec
 //using CDSPackage. This is only used in UTs
-func PutChaincodeIntoFS(depSpec *pb.ChaincodeDeploymentSpec) error {
+func (*CCInfoFSImpl) PutChaincode(depSpec *pb.ChaincodeDeploymentSpec) (CCPackage, error) {
 	buf, err := proto.Marshal(depSpec)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cccdspack := &CDSPackage{}
 	if _, err := cccdspack.InitFromBuffer(buf); err != nil {
+		return nil, err
+	}
+	err = cccdspack.PutChaincodeToFS()
+	if err != nil {
+		return nil, err
+	}
+
+	return cccdspack, nil
+}
+
+// The following lines create the cache of CCPackage data that sits
+// on top of the file system and avoids a trip to the file system
+// every time. The cache is disabled by default and only enabled
+// if EnableCCInfoCache is called. This is an unfortunate hack
+// required by some legacy tests that remove chaincode packages
+// from the file system as a means of simulating particular test
+// conditions. This way of testing is incompatible with the
+// immutable nature of chaincode packages that is assumed by hlf v1
+// and implemented by this cache. For this reason, tests are for now
+// allowed to run with the cache disabled (unless they enable it)
+// until a later time in which they are fixed. The peer process on
+// the other hand requires the benefits of this cache and therefore
+// enables it.
+// TODO: (post v1) enable cache by default as soon as https://jira.hyperledger.org/browse/FAB-3785 is completed
+
+// ccInfoFSStorageMgr is the storage manager used either by the cache or if the
+// cache is bypassed
+var ccInfoFSProvider = &CCInfoFSImpl{}
+
+// ccInfoCache is the cache instance itself
+var ccInfoCache = NewCCInfoCache(ccInfoFSProvider)
+
+// ccInfoCacheEnabled keeps track of whether the cache is enable
+// (it is disabled by default)
+var ccInfoCacheEnabled bool
+
+// EnableCCInfoCache can be called to enable the cache
+func EnableCCInfoCache() {
+	ccInfoCacheEnabled = true
+}
+
+// GetChaincodeFromFS retrieves chaincode information from the cache (or the
+// file system in case of a cache miss) if the cache is enabled, or directly
+// from the file system otherwise
+func GetChaincodeFromFS(ccname string, ccversion string) (CCPackage, error) {
+	if ccInfoCacheEnabled {
+		return ccInfoCache.GetChaincode(ccname, ccversion)
+	} else {
+		return ccInfoFSProvider.GetChaincode(ccname, ccversion)
+	}
+}
+
+// PutChaincodeIntoFS puts chaincode information in the file system (and
+// also in the cache to prime it) if the cache is enabled, or directly
+// from the file system otherwise
+func PutChaincodeIntoFS(depSpec *pb.ChaincodeDeploymentSpec) error {
+	if ccInfoCacheEnabled {
+		_, err := ccInfoCache.PutChaincode(depSpec)
+		return err
+	} else {
+		_, err := ccInfoFSProvider.PutChaincode(depSpec)
 		return err
 	}
-	return cccdspack.PutChaincodeToFS()
 }
 
 // GetCCPackage tries each known package implementation one by one
@@ -156,7 +243,7 @@ func GetInstalledChaincodes() (*pb.ChaincodeQueryResponse, error) {
 		return nil, err
 	}
 
-	// array to store info for all chaincode entries from LCCC
+	// array to store info for all chaincode entries from LSCC
 	var ccInfoArray []*pb.ChaincodeInfo
 
 	for _, file := range files {
@@ -262,7 +349,7 @@ func (cccid *CCContext) GetCanonicalName() string {
 	return cccid.canonicalName
 }
 
-//-------- ChaincodeData is stored on the LCCC -------
+//-------- ChaincodeData is stored on the LSCC -------
 
 //ChaincodeData defines the datastructure for chaincodes to be serialized by proto
 //Type provides an additional check by directing to use a specific package after instantiation
@@ -290,6 +377,9 @@ type ChaincodeData struct {
 	//This is not currently used anywhere but serves as a good
 	//eyecatcher
 	Id []byte `protobuf:"bytes,7,opt,name=id,proto3"`
+
+	//InstantiationPolicy for the chaincode
+	InstantiationPolicy []byte `protobuf:"bytes,8,opt,name=instantiation_policy,proto3"`
 }
 
 //implement functions needed from proto.Message for proto's mar/unmarshal functions
@@ -297,7 +387,7 @@ type ChaincodeData struct {
 //Reset resets
 func (cd *ChaincodeData) Reset() { *cd = ChaincodeData{} }
 
-//String convers to string
+//String converts to string
 func (cd *ChaincodeData) String() string { return proto.CompactTextString(cd) }
 
 //ProtoMessage just exists to make proto happy
@@ -312,8 +402,8 @@ type ChaincodeProvider interface {
 	GetContext(ledger ledger.PeerLedger) (context.Context, error)
 	// GetCCContext returns an opaque chaincode context
 	GetCCContext(cid, name, version, txid string, syscc bool, signedProp *pb.SignedProposal, prop *pb.Proposal) interface{}
-	// GetCCValidationInfoFromLCCC returns the VSCC and the policy listed by LCCC for the supplied chaincode
-	GetCCValidationInfoFromLCCC(ctxt context.Context, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chainID string, chaincodeID string) (string, []byte, error)
+	// GetCCValidationInfoFromLSCC returns the VSCC and the policy listed by LSCC for the supplied chaincode
+	GetCCValidationInfoFromLSCC(ctxt context.Context, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chainID string, chaincodeID string) (string, []byte, error)
 	// ExecuteChaincode executes the chaincode given context and args
 	ExecuteChaincode(ctxt context.Context, cccid interface{}, args [][]byte) (*pb.Response, *pb.ChaincodeEvent, error)
 	// Execute executes the chaincode given context and spec (invocation or deploy)

@@ -18,9 +18,8 @@ package gossip
 
 import (
 	"bytes"
-	"fmt"
-
 	"errors"
+	"fmt"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/gossip/api"
@@ -86,10 +85,7 @@ func (mc *msgComparator) identityInvalidationPolicy(thisIdentityMsg *PeerIdentit
 
 func (mc *msgComparator) dataInvalidationPolicy(thisDataMsg *DataMessage, thatDataMsg *DataMessage) common.InvalidationResult {
 	if thisDataMsg.Payload.SeqNum == thatDataMsg.Payload.SeqNum {
-		if thisDataMsg.Payload.Hash == thatDataMsg.Payload.Hash {
-			return common.MessageInvalidated
-		}
-		return common.MessageNoAction
+		return common.MessageInvalidated
 	}
 
 	diff := abs(thisDataMsg.Payload.SeqNum, thatDataMsg.Payload.SeqNum)
@@ -120,14 +116,14 @@ func leaderInvalidationPolicy(thisMsg *LeadershipMessage, thatMsg *LeadershipMes
 }
 
 func compareTimestamps(thisTS *PeerTime, thatTS *PeerTime) common.InvalidationResult {
-	if thisTS.IncNumber == thatTS.IncNumber {
+	if thisTS.IncNum == thatTS.IncNum {
 		if thisTS.SeqNum > thatTS.SeqNum {
 			return common.MessageInvalidates
 		}
 
 		return common.MessageInvalidated
 	}
-	if thisTS.IncNumber < thatTS.IncNumber {
+	if thisTS.IncNum < thatTS.IncNum {
 		return common.MessageInvalidated
 	}
 	return common.MessageInvalidates
@@ -340,10 +336,18 @@ type ConnectionInfo struct {
 	ID       common.PKIidType
 	Auth     *AuthInfo
 	Identity api.PeerIdentityType
+	Endpoint string
 }
 
-func (connInfo *ConnectionInfo) IsAuthenticated() bool {
-	return connInfo.Auth != nil
+// String returns a string representation of this ConnectionInfo
+func (c *ConnectionInfo) String() string {
+	return fmt.Sprintf("%s %v", c.Endpoint, c.ID)
+}
+
+// IsAuthenticated returns whether the connection to the remote peer
+// was authenticated when the handshake took place
+func (c *ConnectionInfo) IsAuthenticated() bool {
+	return c.Auth != nil
 }
 
 // AuthInfo represents the authentication

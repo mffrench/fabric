@@ -26,7 +26,7 @@ import (
 
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/hyperledger/fabric/common/util"
-	"github.com/hyperledger/fabric/core/ledger"
+	"github.com/hyperledger/fabric/protos/ledger/queryresult"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/op/go-logging"
 )
@@ -209,6 +209,9 @@ func (stub *MockStub) DelState(key string) error {
 }
 
 func (stub *MockStub) GetStateByRange(startKey, endKey string) (StateQueryIteratorInterface, error) {
+	if err := validateSimpleKeys(startKey, endKey); err != nil {
+		return nil, err
+	}
 	return NewMockStateRangeQueryIterator(stub, startKey, endKey), nil
 }
 
@@ -237,7 +240,11 @@ func (stub *MockStub) GetHistoryForKey(key string) (HistoryQueryIteratorInterfac
 //a partial composite key. For a full composite key, an iter with empty response
 //would be returned.
 func (stub *MockStub) GetStateByPartialCompositeKey(objectType string, attributes []string) (StateQueryIteratorInterface, error) {
-	return getStateByPartialCompositeKey(stub, objectType, attributes)
+	partialCompositeKey, err := stub.CreateCompositeKey(objectType, attributes)
+	if err != nil {
+		return nil, err
+	}
+	return NewMockStateRangeQueryIterator(stub, partialCompositeKey, partialCompositeKey+string(maxUnicodeRuneValue)), nil
 }
 
 // CreateCompositeKey combines the list of attributes
@@ -381,7 +388,7 @@ func (iter *MockStateRangeQueryIterator) HasNext() bool {
 }
 
 // Next returns the next key and value in the range query iterator.
-func (iter *MockStateRangeQueryIterator) Next() (*ledger.KV, error) {
+func (iter *MockStateRangeQueryIterator) Next() (*queryresult.KV, error) {
 	if iter.Closed == true {
 		mockLogger.Error("MockStateRangeQueryIterator.Next() called after Close()")
 		return nil, errors.New("MockStateRangeQueryIterator.Next() called after Close()")
@@ -401,7 +408,7 @@ func (iter *MockStateRangeQueryIterator) Next() (*ledger.KV, error) {
 			key := iter.Current.Value.(string)
 			value, err := iter.Stub.GetState(key)
 			iter.Current = iter.Current.Next()
-			return &ledger.KV{Key: key, Value: value}, err
+			return &queryresult.KV{Key: key, Value: value}, err
 		}
 		iter.Current = iter.Current.Next()
 	}

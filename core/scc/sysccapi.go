@@ -21,28 +21,24 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	"github.com/hyperledger/fabric/core/common/ccprovider"
 	"github.com/hyperledger/fabric/core/container/inproccontroller"
 	"github.com/hyperledger/fabric/core/peer"
 
-	"github.com/op/go-logging"
 	"github.com/spf13/viper"
 
 	pb "github.com/hyperledger/fabric/protos/peer"
 )
 
-var sysccLogger = logging.MustGetLogger("sysccapi")
+var sysccLogger = flogging.MustGetLogger("sccapi")
 
 // SystemChaincode defines the metadata needed to initialize system chaincode
 // when the fabric comes up. SystemChaincodes are installed by adding an
 // entry in importsysccs.go
 type SystemChaincode struct {
-	// Enabled a convenient switch to enable/disable system chaincode without
-	// having to remove entry from importsysccs.go
-	Enabled bool
-
 	//Unique name of the system chaincode
 	Name string
 
@@ -54,6 +50,21 @@ type SystemChaincode struct {
 
 	// Chaincode is the actual chaincode object
 	Chaincode shim.Chaincode
+
+	// InvokableExternal keeps track of whether
+	// this system chaincode can be invoked
+	// through a proposal sent to this peer
+	InvokableExternal bool
+
+	// InvokableCC2CC keeps track of whether
+	// this system chaincode can be invoked
+	// by way of a chaincode-to-chaincode
+	// invocation
+	InvokableCC2CC bool
+
+	// Enabled a convenient switch to enable/disable system chaincode without
+	// having to remove entry from importsysccs.go
+	Enabled bool
 }
 
 // RegisterSysCC registers the given system chaincode with the peer

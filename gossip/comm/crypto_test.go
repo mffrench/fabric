@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hyperledger/fabric/gossip/util"
 	proto "github.com/hyperledger/fabric/protos/gossip"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
@@ -38,6 +39,10 @@ type gossipTestServer struct {
 	selfCertHash   []byte
 	ll             net.Listener
 	s              *grpc.Server
+}
+
+func init() {
+	util.SetupTestLogging()
 }
 
 func createTestServer(t *testing.T, cert *tls.Certificate) *gossipTestServer {
@@ -79,7 +84,7 @@ func (s *gossipTestServer) Ping(context.Context, *proto.Empty) (*proto.Empty, er
 }
 
 func TestCertificateExtraction(t *testing.T) {
-	err := generateCertificates("key.pem", "cert.pem")
+	err := GenerateCertificates("key.pem", "cert.pem")
 	defer os.Remove("cert.pem")
 	defer os.Remove("key.pem")
 	assert.NoError(t, err, "%v", err)
@@ -89,7 +94,7 @@ func TestCertificateExtraction(t *testing.T) {
 	srv := createTestServer(t, &serverCert)
 	defer srv.stop()
 
-	generateCertificates("key2.pem", "cert2.pem")
+	GenerateCertificates("key2.pem", "cert2.pem")
 	defer os.Remove("cert2.pem")
 	defer os.Remove("key2.pem")
 	clientCert, err := tls.LoadX509KeyPair("cert2.pem", "key2.pem")
@@ -100,7 +105,10 @@ func TestCertificateExtraction(t *testing.T) {
 		InsecureSkipVerify: true,
 	})
 	assert.NoError(t, err, "%v", err)
-	conn, err := grpc.Dial("localhost:5611", grpc.WithTransportCredentials(&authCreds{tlsCreds: ta}), grpc.WithBlock(), grpc.WithTimeout(time.Second))
+	ac := &authCreds{tlsCreds: ta}
+	assert.Equal(t, "1.2", ac.Info().SecurityVersion)
+	assert.Equal(t, "tls", ac.Info().SecurityProtocol)
+	conn, err := grpc.Dial("localhost:5611", grpc.WithTransportCredentials(ac), grpc.WithBlock(), grpc.WithTimeout(time.Second))
 	assert.NoError(t, err, "%v", err)
 
 	cl := proto.NewGossipClient(conn)

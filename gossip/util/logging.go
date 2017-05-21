@@ -17,13 +17,10 @@ limitations under the License.
 package util
 
 import (
-	"io/ioutil"
-	"log"
 	"sync"
 
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/op/go-logging"
-	"google.golang.org/grpc/grpclog"
 )
 
 // Module names for logger initialization.
@@ -41,25 +38,14 @@ const (
 
 var loggersByModules = make(map[string]*logging.Logger)
 var lock = sync.Mutex{}
-var logger = logging.MustGetLogger("gossip/util")
+var testMode bool
 
-// defaultSpec is used to set the default logging level for all the
-// gossip modules.
-var defaultSpec = "WARNING"
-
-func init() {
-	// This make sure we get a "leveled" logging using the default
-	// format and output location defined in the flogging package,
-	// when the gossip module is not called from a peer process.
-	flogging.InitFromSpec(defaultSpec)
-	logger.Debugf("Setting default logging level to %s.", defaultSpec)
-
-	grpclog.SetLogger(log.New(ioutil.Discard, "", 0))
-}
+// defaultTestSpec is the default logging level for gossip tests
+var defaultTestSpec = "WARNING"
 
 // GetLogger returns a logger for given gossip module and peerID
 func GetLogger(module string, peerID string) *logging.Logger {
-	if peerID != "" {
+	if peerID != "" && testMode {
 		module = module + "#" + peerID
 	}
 
@@ -71,7 +57,13 @@ func GetLogger(module string, peerID string) *logging.Logger {
 	}
 
 	// Logger doesn't exist, create a new one
-	lgr := logging.MustGetLogger(module)
+	lgr := flogging.MustGetLogger(module)
 	loggersByModules[module] = lgr
 	return lgr
+}
+
+// SetupTestLogging sets the default log levels for gossip unit tests
+func SetupTestLogging() {
+	testMode = true
+	flogging.InitFromSpec(defaultTestSpec)
 }

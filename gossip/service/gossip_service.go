@@ -19,7 +19,6 @@ package service
 import (
 	"sync"
 
-	peerComm "github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/core/committer"
 	"github.com/hyperledger/fabric/core/deliverservice"
 	"github.com/hyperledger/fabric/core/deliverservice/blocksprovider"
@@ -31,7 +30,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/integration"
 	"github.com/hyperledger/fabric/gossip/state"
 	"github.com/hyperledger/fabric/gossip/util"
-	"github.com/hyperledger/fabric/peer/gossip/sa"
 	"github.com/hyperledger/fabric/protos/common"
 	proto "github.com/hyperledger/fabric/protos/gossip"
 	"github.com/spf13/viper"
@@ -121,32 +119,35 @@ func (jcm *joinChannelMessage) AnchorPeersOf(org api.OrgIdentityType) []api.Anch
 var logger = util.GetLogger(util.LoggingServiceModule, "")
 
 // InitGossipService initialize gossip service
-func InitGossipService(peerIdentity []byte, endpoint string, s *grpc.Server, mcs api.MessageCryptoService, bootPeers ...string) {
-	InitGossipServiceCustomDeliveryFactory(peerIdentity, endpoint, s, &deliveryFactoryImpl{}, mcs, bootPeers...)
+func InitGossipService(peerIdentity []byte, endpoint string, s *grpc.Server, mcs api.MessageCryptoService,
+	secAdv api.SecurityAdvisor, secureDialOpts api.PeerSecureDialOpts, bootPeers ...string) {
+	// TODO: Remove this.
+	// TODO: This is a temporary work-around to make the gossip leader election module load its logger at startup
+	// TODO: in order for the flogging package to register this logger in time so it can set the log levels as requested in the config
+	util.GetLogger(util.LoggingElectionModule, "")
+	InitGossipServiceCustomDeliveryFactory(peerIdentity, endpoint, s, &deliveryFactoryImpl{},
+		mcs, secAdv, secureDialOpts, bootPeers...)
 }
 
-// InitGossipService initialize gossip service with customize delivery factory
+// InitGossipServiceCustomDeliveryFactory initialize gossip service with customize delivery factory
 // implementation, might be useful for testing and mocking purposes
-func InitGossipServiceCustomDeliveryFactory(peerIdentity []byte, endpoint string, s *grpc.Server, factory DeliveryServiceFactory, mcs api.MessageCryptoService, bootPeers ...string) {
+func InitGossipServiceCustomDeliveryFactory(peerIdentity []byte, endpoint string, s *grpc.Server,
+	factory DeliveryServiceFactory, mcs api.MessageCryptoService, secAdv api.SecurityAdvisor,
+	secureDialOpts api.PeerSecureDialOpts, bootPeers ...string) {
 	once.Do(func() {
-		logger.Info("Initialize gossip with endpoint", endpoint, "and bootstrap set", bootPeers)
-		dialOpts := []grpc.DialOption{}
-		if peerComm.TLSEnabled() {
-			dialOpts = append(dialOpts, grpc.WithTransportCredentials(peerComm.InitTLSForPeer()))
-		} else {
-			dialOpts = append(dialOpts, grpc.WithInsecure())
-		}
-
-		secAdv := sa.NewSecurityAdvisor()
-
 		if overrideEndpoint := viper.GetString("peer.gossip.endpoint"); overrideEndpoint != "" {
 			endpoint = overrideEndpoint
 		}
 
-		idMapper := identity.NewIdentityMapper(mcs)
-		idMapper.Put(mcs.GetPKIidOfCert(peerIdentity), peerIdentity)
+		logger.Info("Initialize gossip with endpoint", endpoint, "and bootstrap set", bootPeers)
 
-		gossip := integration.NewGossipComponent(peerIdentity, endpoint, s, secAdv, mcs, idMapper, dialOpts, bootPeers...)
+		idMapper := identity.NewIdentityMapper(mcs)
+		if err := idMapper.Put(mcs.GetPKIidOfCert(peerIdentity), peerIdentity); err != nil {
+			logger.Panic("Failed associating self PKIID to cert:", err)
+		}
+
+		gossip := integration.NewGossipComponent(peerIdentity, endpoint, s, secAdv,
+			mcs, idMapper, secureDialOpts, bootPeers...)
 		gossipServiceInstance = &gossipServiceImpl{
 			mcs:             mcs,
 			gossipSvc:       gossip,
@@ -224,13 +225,15 @@ func (g *gossipServiceImpl) configUpdated(config Config) {
 		return
 	}
 	jcm := &joinChannelMessage{seqNum: config.Sequence(), members2AnchorPeers: map[string][]api.AnchorPeer{}}
-	for orgID, appOrg := range config.Organizations() {
+	for _, appOrg := range config.Organizations() {
+		logger.Debug(appOrg.MSPID(), "anchor peers:", appOrg.AnchorPeers())
+		jcm.members2AnchorPeers[appOrg.MSPID()] = []api.AnchorPeer{}
 		for _, ap := range appOrg.AnchorPeers() {
 			anchorPeer := api.AnchorPeer{
 				Host: ap.Host,
 				Port: int(ap.Port),
 			}
-			jcm.members2AnchorPeers[orgID] = append(jcm.members2AnchorPeers[orgID], anchorPeer)
+			jcm.members2AnchorPeers[appOrg.MSPID()] = append(jcm.members2AnchorPeers[appOrg.MSPID()], anchorPeer)
 		}
 	}
 
@@ -305,8 +308,8 @@ func (g *gossipServiceImpl) onStatusChangeFactory(chainID string, committer bloc
 
 func orgListFromConfig(config Config) []string {
 	var orgList []string
-	for orgName := range config.Organizations() {
-		orgList = append(orgList, orgName)
+	for _, appOrg := range config.Organizations() {
+		orgList = append(orgList, appOrg.MSPID())
 	}
 	return orgList
 }

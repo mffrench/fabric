@@ -21,20 +21,35 @@ import (
 	"os"
 	"path/filepath"
 
+	"encoding/hex"
+	"io"
+
+	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/tools/cryptogen/ca"
 	"github.com/hyperledger/fabric/common/tools/cryptogen/csp"
 )
 
-func GenerateLocalMSP(baseDir, name string, rootCA *ca.CA) error {
+func GenerateLocalMSP(baseDir, name string, sans []string, rootCA *ca.CA) error {
 
 	// create folder structure
-	err := createFolderStructure(baseDir)
+	mspDir := filepath.Join(baseDir, "msp")
+	tlsDir := filepath.Join(baseDir, "tls")
+
+	err := createFolderStructure(mspDir)
 	if err != nil {
 		return err
 	}
 
+	err = os.MkdirAll(tlsDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	// get keystore path
+	keystore := filepath.Join(mspDir, "keystore")
+
 	// generate private key
-	priv, _, err := csp.GeneratePrivateKey(filepath.Join(baseDir, "keystore"))
+	priv, _, err := csp.GeneratePrivateKey(keystore)
 	if err != nil {
 		return err
 	}
@@ -44,45 +59,53 @@ func GenerateLocalMSP(baseDir, name string, rootCA *ca.CA) error {
 	if err != nil {
 		return err
 	}
-	err = rootCA.SignCertificate(filepath.Join(baseDir, "signcerts"),
-		name, ecPubKey)
+
+	cert, err := rootCA.SignCertificate(filepath.Join(mspDir, "signcerts"), name, sans, ecPubKey)
 	if err != nil {
 		return err
 	}
 
-	// write root cert to folders
-	err = x509ToFile(filepath.Join(baseDir, "admincerts"), rootCA.Name, rootCA.SignCert)
+	// write artifacts to MSP folders
+	folders := []string{"admincerts", "cacerts"}
+	for _, folder := range folders {
+		err = x509Export(filepath.Join(mspDir, folder, x509Filename(rootCA.Name)), rootCA.SignCert)
+		if err != nil {
+			return err
+		}
+	}
+
+	// write artifacts to TLS folder
+	err = x509Export(filepath.Join(tlsDir, "ca.crt"), rootCA.SignCert)
 	if err != nil {
 		return err
 	}
-	err = x509ToFile(filepath.Join(baseDir, "cacerts"), rootCA.Name, rootCA.SignCert)
+
+	err = x509Export(filepath.Join(tlsDir, "server.crt"), cert)
 	if err != nil {
 		return err
 	}
+
+	err = keyExport(keystore, filepath.Join(tlsDir, "server.key"), priv)
+	if err != nil {
+		return err
+	}
+
 	return nil
-
 }
 
 func GenerateVerifyingMSP(baseDir string, rootCA *ca.CA) error {
 
 	// create folder structure
 	err := createFolderStructure(baseDir)
-	if err != nil {
-		return err
-	}
-
-	// write public cert to appropriate folders
-	err = x509ToFile(filepath.Join(baseDir, "admincerts"), rootCA.Name, rootCA.SignCert)
-	if err != nil {
-		return err
-	}
-	err = x509ToFile(filepath.Join(baseDir, "cacerts"), rootCA.Name, rootCA.SignCert)
-	if err != nil {
-		return err
-	}
-	err = x509ToFile(filepath.Join(baseDir, "signcerts"), rootCA.Name, rootCA.SignCert)
-	if err != nil {
-		return err
+	if err == nil {
+		// write MSP cert to appropriate folders
+		folders := []string{"admincerts", "cacerts", "signcerts"}
+		for _, folder := range folders {
+			err = x509Export(filepath.Join(baseDir, folder, x509Filename(rootCA.Name)), rootCA.SignCert)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -104,24 +127,50 @@ func createFolderStructure(rootDir string) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func x509ToFile(baseDir, name string, cert *x509.Certificate) error {
+func x509Filename(name string) string {
+	return name + "-cert.pem"
+}
 
-	//write cert out to file
-	fileName := filepath.Join(baseDir, name+"-cert.pem")
-	certFile, err := os.Create(fileName)
+func x509Export(path string, cert *x509.Certificate) error {
+	return pemExport(path, "CERTIFICATE", cert.Raw)
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	//pem encode the cert
-	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-	certFile.Close()
+	defer in.Close()
+	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	cerr := out.Close()
+	if err != nil {
+		return err
+	}
+	return cerr
+}
 
-	return nil
+func keyExport(keystore, output string, key bccsp.Key) error {
+	id := hex.EncodeToString(key.SKI())
 
+	return copyFile(filepath.Join(keystore, id+"_sk"), output)
+}
+
+func pemExport(path, pemType string, bytes []byte) error {
+	//write pem out to file
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return pem.Encode(file, &pem.Block{Type: pemType, Bytes: bytes})
 }

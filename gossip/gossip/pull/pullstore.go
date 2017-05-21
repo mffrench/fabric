@@ -31,14 +31,14 @@ import (
 
 // Constants go here.
 const (
-	HelloMsgType PullMsgType = iota
+	HelloMsgType MsgType = iota
 	DigestMsgType
 	RequestMsgType
 	ResponseMsgType
 )
 
-// PullMsgType defines the type of a message that is sent to the PullStore
-type PullMsgType int
+// MsgType defines the type of a message that is sent to the PullStore
+type MsgType int
 
 // MessageHook defines a function that will run after a certain pull message is received
 type MessageHook func(itemIDs []string, items []*proto.SignedGossipMessage, msg proto.ReceivedMessage)
@@ -55,14 +55,37 @@ type MembershipService interface {
 	GetMembership() []discovery.NetworkMember
 }
 
-// PullConfig defines the configuration of the pull mediator
-type PullConfig struct {
+// Config defines the configuration of the pull mediator
+type Config struct {
 	ID                string
 	PullInterval      time.Duration // Duration between pull invocations
-	PeerCountToSelect int           // Number of peers to initiate pull with
-	Tag               proto.GossipMessage_Tag
 	Channel           common.ChainID
+	PeerCountToSelect int // Number of peers to initiate pull with
+	Tag               proto.GossipMessage_Tag
 	MsgType           proto.PullMsgType
+}
+
+// DigestFilter filters digests to be sent to a remote peer, that
+// sent a hello with the following message
+type DigestFilter func(helloMsg proto.ReceivedMessage) func(digestItem string) bool
+
+// byContext converts this DigestFilter to an algo.DigestFilter
+func (df DigestFilter) byContext() algo.DigestFilter {
+	return func(context interface{}) func(digestItem string) bool {
+		return func(digestItem string) bool {
+			return df(context.(proto.ReceivedMessage))(digestItem)
+		}
+	}
+}
+
+// PullAdapter defines methods of the pullStore to interact
+// with various modules of gossip
+type PullAdapter struct {
+	Sndr        Sender
+	MemSvc      MembershipService
+	IdExtractor proto.IdentifierExtractor
+	MsgCons     proto.MsgConsumer
+	DigFilter   DigestFilter
 }
 
 // Mediator is a component wrap a PullEngine and provides the methods
@@ -76,13 +99,14 @@ type Mediator interface {
 	Stop()
 
 	// RegisterMsgHook registers a message hook to a specific type of pull message
-	RegisterMsgHook(PullMsgType, MessageHook)
+	RegisterMsgHook(MsgType, MessageHook)
 
 	// Add adds a GossipMessage to the Mediator
 	Add(*proto.SignedGossipMessage)
 
-	// Remove removes a GossipMessage from the Mediator
-	Remove(*proto.SignedGossipMessage)
+	// Remove removes a GossipMessage from the Mediator with a matching digest,
+	// if such a message exits
+	Remove(digest string)
 
 	// HandleMessage handles a message from some remote peer
 	HandleMessage(msg proto.ReceivedMessage)
@@ -91,30 +115,37 @@ type Mediator interface {
 // pullMediatorImpl is an implementation of Mediator
 type pullMediatorImpl struct {
 	sync.RWMutex
-	Sender
-	msgType2Hook map[PullMsgType][]MessageHook
-	idExtractor  proto.IdentifierExtractor
-	msgCons      proto.MsgConsumer
-	config       PullConfig
+	*PullAdapter
+	msgType2Hook map[MsgType][]MessageHook
+	config       Config
 	logger       *logging.Logger
 	itemID2Msg   map[string]*proto.SignedGossipMessage
-	memBvc       MembershipService
 	engine       *algo.PullEngine
 }
 
 // NewPullMediator returns a new Mediator
-func NewPullMediator(config PullConfig, sndr Sender, memSvc MembershipService, idExtractor proto.IdentifierExtractor, msgCons proto.MsgConsumer) Mediator {
+func NewPullMediator(config Config, adapter *PullAdapter) Mediator {
+	digFilter := adapter.DigFilter
+
+	acceptAllFilter := func(_ proto.ReceivedMessage) func(string) bool {
+		return func(_ string) bool {
+			return true
+		}
+	}
+
+	if digFilter == nil {
+		digFilter = acceptAllFilter
+	}
+
 	p := &pullMediatorImpl{
-		msgCons:      msgCons,
-		msgType2Hook: make(map[PullMsgType][]MessageHook),
-		idExtractor:  idExtractor,
+		PullAdapter:  adapter,
+		msgType2Hook: make(map[MsgType][]MessageHook),
 		config:       config,
 		logger:       util.GetLogger(util.LoggingPullModule, config.ID),
 		itemID2Msg:   make(map[string]*proto.SignedGossipMessage),
-		memBvc:       memSvc,
-		Sender:       sndr,
 	}
-	p.engine = algo.NewPullEngine(p, config.PullInterval)
+
+	p.engine = algo.NewPullEngineWithFilter(p, config.PullInterval, digFilter.byContext())
 	return p
 }
 
@@ -133,7 +164,7 @@ func (p *pullMediatorImpl) HandleMessage(m proto.ReceivedMessage) {
 
 	itemIDs := []string{}
 	items := []*proto.SignedGossipMessage{}
-	var pullMsgType PullMsgType
+	var pullMsgType MsgType
 
 	if helloMsg := msg.GetHello(); helloMsg != nil {
 		pullMsgType = HelloMsgType
@@ -159,8 +190,8 @@ func (p *pullMediatorImpl) HandleMessage(m proto.ReceivedMessage) {
 				p.logger.Warning("Data update contains an invalid message:", err)
 				return
 			}
-			p.msgCons(msg)
-			itemIDs[i] = p.idExtractor(msg)
+			p.MsgCons(msg)
+			itemIDs[i] = p.IdExtractor(msg)
 			items[i] = msg
 			p.Lock()
 			p.itemID2Msg[itemIDs[i]] = msg
@@ -180,7 +211,7 @@ func (p *pullMediatorImpl) Stop() {
 }
 
 // RegisterMsgHook registers a message hook to a specific type of pull message
-func (p *pullMediatorImpl) RegisterMsgHook(pullMsgType PullMsgType, hook MessageHook) {
+func (p *pullMediatorImpl) RegisterMsgHook(pullMsgType MsgType, hook MessageHook) {
 	p.Lock()
 	defer p.Unlock()
 	p.msgType2Hook[pullMsgType] = append(p.msgType2Hook[pullMsgType], hook)
@@ -191,23 +222,23 @@ func (p *pullMediatorImpl) RegisterMsgHook(pullMsgType PullMsgType, hook Message
 func (p *pullMediatorImpl) Add(msg *proto.SignedGossipMessage) {
 	p.Lock()
 	defer p.Unlock()
-	itemID := p.idExtractor(msg)
+	itemID := p.IdExtractor(msg)
 	p.itemID2Msg[itemID] = msg
 	p.engine.Add(itemID)
 }
 
-// Remove removes a GossipMessage from the store
-func (p *pullMediatorImpl) Remove(msg *proto.SignedGossipMessage) {
+// Remove removes a GossipMessage from the Mediator with a matching digest,
+// if such a message exits
+func (p *pullMediatorImpl) Remove(digest string) {
 	p.Lock()
 	defer p.Unlock()
-	itemID := p.idExtractor(msg)
-	delete(p.itemID2Msg, itemID)
-	p.engine.Remove(itemID)
+	delete(p.itemID2Msg, digest)
+	p.engine.Remove(digest)
 }
 
 // SelectPeers returns a slice of peers which the engine will initiate the protocol with
 func (p *pullMediatorImpl) SelectPeers() []string {
-	remotePeers := SelectEndpoints(p.config.PeerCountToSelect, p.memBvc.GetMembership())
+	remotePeers := SelectEndpoints(p.config.PeerCountToSelect, p.MemSvc.GetMembership())
 	endpoints := make([]string, len(remotePeers))
 	for i, peer := range remotePeers {
 		endpoints[i] = peer.Endpoint
@@ -232,7 +263,7 @@ func (p *pullMediatorImpl) Hello(dest string, nonce uint64) {
 	}
 
 	p.logger.Debug("Sending hello to", dest)
-	p.Send(helloMsg.NoopSign(), p.peersWithEndpoints(dest)...)
+	p.Sndr.Send(helloMsg.NoopSign(), p.peersWithEndpoints(dest)...)
 }
 
 // SendDigest sends a digest to a remote PullEngine.
@@ -270,7 +301,7 @@ func (p *pullMediatorImpl) SendReq(dest string, items []string, nonce uint64) {
 		},
 	}
 	p.logger.Debug("Sending", req, "to", dest)
-	p.Send(req.NoopSign(), p.peersWithEndpoints(dest)...)
+	p.Sndr.Send(req.NoopSign(), p.peersWithEndpoints(dest)...)
 }
 
 // SendRes sends an array of items to a remote PullEngine identified by a context.
@@ -302,7 +333,7 @@ func (p *pullMediatorImpl) SendRes(items []string, context interface{}, nonce ui
 
 func (p *pullMediatorImpl) peersWithEndpoints(endpoints ...string) []*comm.RemotePeer {
 	peers := []*comm.RemotePeer{}
-	for _, member := range p.memBvc.GetMembership() {
+	for _, member := range p.MemSvc.GetMembership() {
 		for _, endpoint := range endpoints {
 			if member.PreferredEndpoint() == endpoint {
 				peers = append(peers, &comm.RemotePeer{Endpoint: member.PreferredEndpoint(), PKIID: member.PKIid})
@@ -312,7 +343,7 @@ func (p *pullMediatorImpl) peersWithEndpoints(endpoints ...string) []*comm.Remot
 	return peers
 }
 
-func (p *pullMediatorImpl) hooksByMsgType(msgType PullMsgType) []MessageHook {
+func (p *pullMediatorImpl) hooksByMsgType(msgType MsgType) []MessageHook {
 	p.RLock()
 	defer p.RUnlock()
 	returnedHooks := []MessageHook{}

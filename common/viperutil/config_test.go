@@ -66,7 +66,7 @@ func TestEnvSlice(t *testing.T) {
 
 	expected := []string{"a", "b", "c"}
 	if !reflect.DeepEqual(uconf.Inner.Slice, expected) {
-		t.Fatalf("Did not get back the right slice, expeced: %v got %v", expected, uconf.Inner.Slice)
+		t.Fatalf("Did not get back the right slice, expected: %v got %v", expected, uconf.Inner.Slice)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestByteSize(t *testing.T) {
 				t.Fatalf("Failed to unmarshal with: %s", err)
 			}
 			if uconf.Inner.ByteSize != tc.expected {
-				t.Fatalf("Did not get back the right byte size, expeced: %v got %v", tc.expected, uconf.Inner.ByteSize)
+				t.Fatalf("Did not get back the right byte size, expected: %v got %v", tc.expected, uconf.Inner.ByteSize)
 			}
 		})
 	}
@@ -381,6 +381,48 @@ func TestStringFromFileEnv(t *testing.T) {
 				t.Fatalf(`Expected: "%v",  Actual: "%v"`, expectedValue, uconf.Inner.Single)
 			}
 		})
+	}
+
+}
+
+func TestEnhancedExactUnmarshalKey(t *testing.T) {
+	type Nested struct {
+		Key string
+	}
+
+	type nestedKey struct {
+		Nested Nested
+	}
+
+	yaml := "---\n" +
+		"Top:\n" +
+		"  Nested:\n" +
+		"    Nested:\n" +
+		"      Key: BAD\n"
+
+	envVar := "VIPERUTIL_TOP_NESTED_NESTED_KEY"
+	envVal := "GOOD"
+	os.Setenv(envVar, envVal)
+	defer os.Unsetenv(envVar)
+
+	viper.SetEnvPrefix(Prefix)
+	defer viper.Reset()
+	viper.AutomaticEnv()
+	replacer := strings.NewReplacer(".", "_")
+	viper.SetEnvKeyReplacer(replacer)
+	viper.SetConfigType("yaml")
+
+	if err := viper.ReadConfig(bytes.NewReader([]byte(yaml))); err != nil {
+		t.Fatalf("Error reading config: %s", err)
+	}
+
+	var uconf nestedKey
+	if err := EnhancedExactUnmarshalKey("top.Nested", &uconf); err != nil {
+		t.Fatalf("Failed to unmarshall: %s", err)
+	}
+
+	if uconf.Nested.Key != envVal {
+		t.Fatalf(`Expected: "%s", Actual: "%s"`, envVal, uconf.Nested.Key)
 	}
 
 }

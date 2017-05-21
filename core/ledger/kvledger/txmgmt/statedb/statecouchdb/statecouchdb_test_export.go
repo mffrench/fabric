@@ -24,11 +24,7 @@ import (
 	"github.com/hyperledger/fabric/core/ledger/util/couchdb"
 )
 
-//Basic setup to test couch
-var connectURL = "couchdb:5984"
-var badConnectURL = "couchdb:5990"
-var username = ""
-var password = ""
+const badConnectURL = "couchdb:5990"
 
 // TestVDBEnv provides a couch db backed versioned db for testing
 type TestVDBEnv struct {
@@ -55,7 +51,9 @@ func (env *TestVDBEnv) Cleanup(dbName string) {
 }
 func cleanupDB(dbName string) {
 	//create a new connection
-	couchInstance, _ := couchdb.CreateCouchInstance(connectURL, username, password)
+	couchDBDef := couchdb.GetCouchDBDefinition()
+	couchInstance, _ := couchdb.CreateCouchInstance(couchDBDef.URL, couchDBDef.Username, couchDBDef.Password,
+		couchDBDef.MaxRetries, couchDBDef.MaxRetriesOnStartup, couchDBDef.RequestTimeout)
 	db := couchdb.CouchDatabase{CouchInstance: *couchInstance, DBName: dbName}
 	//drop the test database
 	db.DropDatabase()

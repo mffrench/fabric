@@ -22,7 +22,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/op/go-logging"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -30,6 +29,7 @@ import (
 
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core"
+	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/peer/chaincode"
 	"github.com/hyperledger/fabric/peer/channel"
 	"github.com/hyperledger/fabric/peer/clilogging"
@@ -38,7 +38,7 @@ import (
 	"github.com/hyperledger/fabric/peer/version"
 )
 
-var logger = logging.MustGetLogger("main")
+var logger = flogging.MustGetLogger("main")
 var logOutput = os.Stderr
 
 // Constants go here.
@@ -49,7 +49,15 @@ const cmdRoot = "core"
 var mainCmd = &cobra.Command{
 	Use: "peer",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		flogging.InitFromSpec(viper.GetString("logging_level"))
+		// check for CORE_LOGGING_LEVEL environment variable, which should override
+		// all other log settings
+		loggingSpec := viper.GetString("logging_level")
+
+		if loggingSpec == "" {
+			// if CORE_LOGGING_LEVEL not set, use the value for 'peer' from core.yaml
+			loggingSpec = viper.GetString("logging.peer")
+		}
+		flogging.InitFromSpec(loggingSpec)
 
 		return core.CacheConfiguration()
 	},
@@ -90,7 +98,7 @@ func main() {
 	mainCmd.AddCommand(version.Cmd())
 	mainCmd.AddCommand(node.Cmd())
 	mainCmd.AddCommand(chaincode.Cmd(nil))
-	mainCmd.AddCommand(clilogging.Cmd())
+	mainCmd.AddCommand(clilogging.Cmd(nil))
 	mainCmd.AddCommand(channel.Cmd(nil))
 
 	runtime.GOMAXPROCS(viper.GetInt("peer.gomaxprocs"))
@@ -99,7 +107,7 @@ func main() {
 	flogging.InitBackend(flogging.SetFormat(viper.GetString("logging.format")), logOutput)
 
 	// Init the MSP
-	var mspMgrConfigDir = viper.GetString("peer.mspConfigPath")
+	var mspMgrConfigDir = config.GetPath("peer.mspConfigPath")
 	var mspID = viper.GetString("peer.localMspId")
 	err = common.InitCrypto(mspMgrConfigDir, mspID)
 	if err != nil { // Handle errors reading the config file

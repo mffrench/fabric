@@ -19,16 +19,20 @@ package node
 import (
 	"fmt"
 
-	"github.com/op/go-logging"
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/spf13/cobra"
 )
 
-const nodeFuncName = "node"
+const (
+	nodeFuncName = "node"
+	shortDes     = "Operate a peer node: start|stop|status."
+	longDes      = "Operate a peer node: start|stop|status."
+)
 
 var (
 	stopPidFile string
 )
-var logger = logging.MustGetLogger("nodeCmd")
+var logger = flogging.MustGetLogger("nodeCmd")
 
 // Cmd returns the cobra command for Node
 func Cmd() *cobra.Command {
@@ -41,6 +45,6 @@ func Cmd() *cobra.Command {
 
 var nodeCmd = &cobra.Command{
 	Use:   nodeFuncName,
-	Short: fmt.Sprintf("%s specific commands.", nodeFuncName),
-	Long:  fmt.Sprintf("%s specific commands.", nodeFuncName),
+	Short: fmt.Sprint(shortDes),
+	Long:  fmt.Sprint(longDes),
 }

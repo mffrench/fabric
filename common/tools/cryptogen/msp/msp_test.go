@@ -27,7 +27,8 @@ import (
 )
 
 const (
-	testCAName = "root0"
+	testCAOrg  = "example.com"
+	testCAName = "ca" + "." + testCAOrg
 	testName   = "peer0"
 )
 
@@ -36,11 +37,15 @@ var testDir = filepath.Join(os.TempDir(), "msp-test")
 func TestGenerateLocalMSP(t *testing.T) {
 
 	cleanup(testDir)
+
+	err := msp.GenerateLocalMSP(testDir, testName, nil, &ca.CA{})
+	assert.Error(t, err, "Empty CA should have failed")
+
 	caDir := filepath.Join(testDir, "ca")
 	mspDir := filepath.Join(testDir, "msp")
-	rootCA, err := ca.NewCA(caDir, testCAName)
+	rootCA, err := ca.NewCA(caDir, testCAOrg, testCAName)
 	assert.NoError(t, err, "Error generating CA")
-	err = msp.GenerateLocalMSP(mspDir, testName, rootCA)
+	err = msp.GenerateLocalMSP(testDir, testName, nil, rootCA)
 	assert.NoError(t, err, "Failed to generate local MSP")
 
 	// check to see that the right files were generated/saved
@@ -63,6 +68,11 @@ func TestGenerateLocalMSP(t *testing.T) {
 	assert.NoError(t, err, "Error creating new BCCSP MSP")
 	err = testMSP.Setup(testMSPConfig)
 	assert.NoError(t, err, "Error setting up local MSP")
+
+	rootCA.Name = "test/fail"
+	err = msp.GenerateLocalMSP(testDir, testName, nil, rootCA)
+	assert.Error(t, err, "Should have failed with CA name 'test/fail'")
+	t.Log(err)
 	cleanup(testDir)
 
 }
@@ -71,7 +81,8 @@ func TestGenerateVerifyingMSP(t *testing.T) {
 
 	caDir := filepath.Join(testDir, "ca")
 	mspDir := filepath.Join(testDir, "msp")
-	rootCA, err := ca.NewCA(caDir, testCAName)
+	rootCA, err := ca.NewCA(caDir, testCAOrg, testCAName)
+	assert.NoError(t, err, "Failed to create new CA")
 
 	err = msp.GenerateVerifyingMSP(mspDir, rootCA)
 	assert.NoError(t, err, "Failed to generate verifying MSP")
@@ -94,6 +105,11 @@ func TestGenerateVerifyingMSP(t *testing.T) {
 	assert.NoError(t, err, "Error creating new BCCSP MSP")
 	err = testMSP.Setup(testMSPConfig)
 	assert.NoError(t, err, "Error setting up verifying MSP")
+
+	rootCA.Name = "test/fail"
+	err = msp.GenerateVerifyingMSP(mspDir, rootCA)
+	assert.Error(t, err, "Should have failed with CA name 'test/fail'")
+	t.Log(err)
 	cleanup(testDir)
 }
 

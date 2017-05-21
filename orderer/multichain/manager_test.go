@@ -21,10 +21,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/configtx"
 	genesisconfig "github.com/hyperledger/fabric/common/configtx/tool/localconfig"
 	"github.com/hyperledger/fabric/common/configtx/tool/provisional"
 	mockcrypto "github.com/hyperledger/fabric/common/mocks/crypto"
+	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/orderer/ledger"
 	ramledger "github.com/hyperledger/fabric/orderer/ledger/ram"
 	cb "github.com/hyperledger/fabric/protos/common"
@@ -33,17 +35,20 @@ import (
 
 	"errors"
 
+	mmsp "github.com/hyperledger/fabric/common/mocks/msp"
 	logging "github.com/op/go-logging"
 	"github.com/stretchr/testify/assert"
 )
 
 var conf *genesisconfig.Profile
 var genesisBlock = cb.NewBlock(0, nil) // *cb.Block
+var mockSigningIdentity msp.SigningIdentity
 
 func init() {
 	conf = genesisconfig.Load(genesisconfig.SampleInsecureProfile)
 	logging.SetLevel(logging.DEBUG, "")
 	genesisBlock = provisional.New(conf).GenesisBlock()
+	mockSigningIdentity, _ = mmsp.NewNoopMsp().GetDefaultSigningIdentity()
 }
 
 func mockCrypto() *mockCryptoHelper {
@@ -128,7 +133,7 @@ func TestGetConfigTxFailure(t *testing.T) {
 
 }
 
-// This test essentially brings the entire system up and is ultimately what main.go will replicate
+// This test checks to make sure the orderer refuses to come up if it cannot find a system channel
 func TestNoSystemChain(t *testing.T) {
 	defer func() {
 		if recover() == nil {
@@ -142,6 +147,24 @@ func TestNoSystemChain(t *testing.T) {
 	consenters[conf.Orderer.OrdererType] = &mockConsenter{}
 
 	NewManagerImpl(lf, consenters, mockCrypto())
+}
+
+// This test checks to make sure that the orderer refuses to come up if there are multiple system channels
+func TestMultiSystemChannel(t *testing.T) {
+	lf := ramledger.New(10)
+
+	for _, id := range []string{"foo", "bar"} {
+		rl, err := lf.GetOrCreate(id)
+		assert.NoError(t, err)
+
+		err = rl.Append(provisional.New(conf).GenesisBlockForChannel(id))
+		assert.NoError(t, err)
+	}
+
+	consenters := make(map[string]Consenter)
+	consenters[conf.Orderer.OrdererType] = &mockConsenter{}
+
+	assert.Panics(t, func() { NewManagerImpl(lf, consenters, mockCrypto()) }, "Two system channels should have caused panic")
 }
 
 // This test essentially brings the entire system up and is ultimately what main.go will replicate
@@ -231,6 +254,10 @@ func TestSignatureFilter(t *testing.T) {
 
 // This test brings up the entire system, with the mock consenter, including the broadcasters etc. and creates a new chain
 func TestNewChain(t *testing.T) {
+	expectedLastConfigBlockNumber := uint64(0)
+	expectedLastConfigSeq := uint64(1)
+	newChainID := "TestNewChain"
+
 	lf, rl := NewRAMLedgerAndFactory(10)
 
 	consenters := make(map[string]Consenter)
@@ -238,17 +265,24 @@ func TestNewChain(t *testing.T) {
 
 	manager := NewManagerImpl(lf, consenters, mockCrypto())
 
-	newChainID := "TestNewChain"
+	envConfigUpdate, err := configtx.MakeChainCreationTransaction(newChainID, genesisconfig.SampleConsortiumName, mockSigningIdentity)
+	assert.NoError(t, err, "Constructing chain creation tx")
 
-	configEnv, err := configtx.NewChainCreationTemplate(provisional.AcceptAllPolicyKey, provisional.New(conf).ChannelTemplate()).Envelope(newChainID)
-	if err != nil {
-		t.Fatalf("Error constructing configtx")
-	}
-	ingressTx := makeConfigTxFromConfigUpdateEnvelope(newChainID, configEnv)
+	cm, err := manager.NewChannelConfig(envConfigUpdate)
+	assert.NoError(t, err, "Constructing initial channel config")
+
+	configEnv, err := cm.ProposeConfigUpdate(envConfigUpdate)
+	assert.NoError(t, err, "Proposing initial update")
+	assert.Equal(t, expectedLastConfigSeq, configEnv.GetConfig().Sequence, "Sequence of config envelope for new channel should always be set to %d", expectedLastConfigSeq)
+
+	ingressTx, err := utils.CreateSignedEnvelope(cb.HeaderType_CONFIG, newChainID, mockCrypto(), configEnv, msgVersion, epoch)
+	assert.NoError(t, err, "Creating ingresstx")
+
 	wrapped := wrapConfigTx(ingressTx)
 
 	chainSupport, ok := manager.GetChain(manager.SystemChannelID())
 	assert.True(t, ok, "Could not find system channel")
+
 	chainSupport.Enqueue(wrapped)
 
 	it, _ := rl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: 1}}})
@@ -289,6 +323,7 @@ func TestNewChain(t *testing.T) {
 		if status != cb.Status_SUCCESS {
 			t.Fatalf("Could not retrieve new chain genesis block")
 		}
+		testLastConfigBlockNumber(t, block, expectedLastConfigBlockNumber)
 		if len(block.Data.Data) != 1 {
 			t.Fatalf("Should have had only one message in the new genesis block")
 		}
@@ -304,6 +339,7 @@ func TestNewChain(t *testing.T) {
 		if status != cb.Status_SUCCESS {
 			t.Fatalf("Could not retrieve block on new chain")
 		}
+		testLastConfigBlockNumber(t, block, expectedLastConfigBlockNumber)
 		for i := 0; i < int(conf.Orderer.BatchSize.MaxMessageCount); i++ {
 			if !reflect.DeepEqual(utils.ExtractEnvelopeOrPanic(block, i), messages[i]) {
 				t.Errorf("Block contents wrong at index %d in new chain", i)
@@ -312,4 +348,14 @@ func TestNewChain(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatalf("Block 1 not produced after timeout on new chain")
 	}
+}
+
+func testLastConfigBlockNumber(t *testing.T, block *cb.Block, expectedBlockNumber uint64) {
+	metadataItem := &cb.Metadata{}
+	err := proto.Unmarshal(block.Metadata.Metadata[cb.BlockMetadataIndex_LAST_CONFIG], metadataItem)
+	assert.NoError(t, err, "Block should carry LAST_CONFIG metadata item")
+	lastConfig := &cb.LastConfig{}
+	err = proto.Unmarshal(metadataItem.Value, lastConfig)
+	assert.NoError(t, err, "LAST_CONFIG metadata item should carry last config value")
+	assert.Equal(t, expectedBlockNumber, lastConfig.Index, "LAST_CONFIG value should point to last config block")
 }

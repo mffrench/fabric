@@ -24,9 +24,9 @@ import (
 
 	"github.com/hyperledger/fabric/bccsp/factory"
 	configvaluesmsp "github.com/hyperledger/fabric/common/config/msp"
-
+	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/msp"
-	"github.com/op/go-logging"
 )
 
 // LoadLocalMsp loads the local MSP from the specified directory
@@ -43,6 +43,16 @@ func LoadLocalMsp(dir string, bccspConfig *factory.FactoryOpts, mspID string) er
 	return GetLocalMSP().Setup(conf)
 }
 
+// Loads the development local MSP for use in testing.  Not valid for production/runtime context
+func LoadDevMsp() error {
+	mspDir, err := config.GetDevMspDir()
+	if err != nil {
+		return err
+	}
+
+	return LoadLocalMsp(mspDir, nil, "DEFAULT")
+}
+
 // FIXME: AS SOON AS THE CHAIN MANAGEMENT CODE IS COMPLETE,
 // THESE MAPS AND HELPSER FUNCTIONS SHOULD DISAPPEAR BECAUSE
 // OWNERSHIP OF PER-CHAIN MSP MANAGERS WILL BE HANDLED BY IT;
@@ -51,7 +61,7 @@ func LoadLocalMsp(dir string, bccspConfig *factory.FactoryOpts, mspID string) er
 var m sync.Mutex
 var localMsp msp.MSP
 var mspMap map[string]msp.MSPManager = make(map[string]msp.MSPManager)
-var mspLogger = logging.MustGetLogger("msp")
+var mspLogger = flogging.MustGetLogger("msp")
 
 // GetManagerForChain returns the msp manager for the supplied
 // chain; if no such manager exists, one is created
@@ -101,15 +111,6 @@ func GetDeserializers() map[string]msp.IdentityDeserializer {
 	}
 
 	return clone
-}
-
-// GetManagerForChainIfExists returns the MSPManager associated to ChainID
-// it it exists
-func GetManagerForChainIfExists(ChainID string) msp.MSPManager {
-	m.Lock()
-	defer m.Unlock()
-
-	return mspMap[ChainID]
 }
 
 // XXXSetMSPManager is a stopgap solution to transition from the custom MSP config block

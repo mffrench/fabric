@@ -19,16 +19,15 @@ package core
 import (
 	"os"
 
-	"github.com/op/go-logging"
-	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/core/config"
 	pb "github.com/hyperledger/fabric/protos/peer"
 )
 
-var log = logging.MustGetLogger("server")
+var log = flogging.MustGetLogger("server")
 
 // NewAdminServer creates and returns a Admin service instance.
 func NewAdminServer() *ServerAdmin {
@@ -59,10 +58,10 @@ func (*ServerAdmin) StopServer(context.Context, *empty.Empty) (*pb.ServerStatus,
 	status := &pb.ServerStatus{Status: pb.ServerStatus_STOPPED}
 	log.Debugf("returning status: %s", status)
 
-	pidFile := viper.GetString("peer.fileSystemPath") + "/peer.pid"
+	pidFile := config.GetPath("peer.fileSystemPath") + "/peer.pid"
 	log.Debugf("Remove pid file  %s", pidFile)
 	os.Remove(pidFile)
-	defer os.Exit(0)
+	defer os.Exit(1)
 	return status, nil
 }
 

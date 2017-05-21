@@ -90,9 +90,8 @@ func install(msg proto.Message, cf *ChaincodeCmdFactory) error {
 
 //generateChaincode creates ChaincodeDeploymentSpec as the package to install
 func generateChaincode(cmd *cobra.Command, chaincodeName, chaincodeVersion string) (*pb.ChaincodeDeploymentSpec, error) {
-	tmppkg, _ := ccprovider.GetChaincodePackage(chaincodeName, chaincodeVersion)
-	if tmppkg != nil {
-		return nil, fmt.Errorf("chaincode %s:%s exists", chaincodeName, chaincodeVersion)
+	if existed, _ := ccprovider.ChaincodePackageExists(chaincodeName, chaincodeVersion); existed {
+		return nil, fmt.Errorf("chaincode %s:%s already exists", chaincodeName, chaincodeVersion)
 	}
 
 	spec, err := getChaincodeSpec(cmd)
@@ -152,7 +151,7 @@ func getPackageFromFile(ccpackfile string) (proto.Message, *pb.ChaincodeDeployme
 	return o, cds, nil
 }
 
-// chaincodeInstall installs the chaincode. If remoteinstall, does it via a lccc call
+// chaincodeInstall installs the chaincode. If remoteinstall, does it via a lscc call
 func chaincodeInstall(cmd *cobra.Command, ccpackfile string, cf *ChaincodeCmdFactory) error {
 	var err error
 	if cf == nil {

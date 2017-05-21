@@ -23,6 +23,7 @@ import (
 	gossipcommon "github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/discovery"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/protos/common"
 	gossip_proto "github.com/hyperledger/fabric/protos/gossip"
@@ -96,7 +97,7 @@ type blocksProviderImpl struct {
 var logger *logging.Logger // package-level logger
 
 func init() {
-	logger = logging.MustGetLogger("blocksProvider")
+	logger = flogging.MustGetLogger("blocksProvider")
 }
 
 // NewBlocksProvider constructor function to create blocks deliverer instance
@@ -134,7 +135,7 @@ func (b *blocksProviderImpl) DeliverBlocks() {
 				logger.Errorf("Error serializing block with sequence number %d, due to %s", seqNum, err)
 				continue
 			}
-			if err := b.mcs.VerifyBlock(gossipcommon.ChainID(b.chainID), marshaledBlock); err != nil {
+			if err := b.mcs.VerifyBlock(gossipcommon.ChainID(b.chainID), seqNum, marshaledBlock); err != nil {
 				logger.Errorf("Error verifying block with sequnce number %d, due to %s", seqNum, err)
 				continue
 			}

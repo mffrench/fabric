@@ -17,6 +17,7 @@ limitations under the License.
 package committer
 
 import (
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/committer/txvalidator"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/events/producer"
@@ -32,11 +33,11 @@ import (
 var logger *logging.Logger // package-level logger
 
 func init() {
-	logger = logging.MustGetLogger("committer")
+	logger = flogging.MustGetLogger("committer")
 }
 
 // LedgerCommitter is the implementation of  Committer interface
-// it keeps the reference to the ledger to commit blocks and retreive
+// it keeps the reference to the ledger to commit blocks and retrieve
 // chain information
 type LedgerCommitter struct {
 	ledger    ledger.PeerLedger

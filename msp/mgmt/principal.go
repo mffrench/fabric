@@ -23,6 +23,14 @@ import (
 	"github.com/hyperledger/fabric/protos/msp"
 )
 
+const (
+	// Admins is the label for the local MSP admins
+	Admins = "Admins"
+
+	// Members is the label for the local MSP members
+	Members = "Members"
+)
+
 type MSPPrincipalGetter interface {
 	// Get returns an MSP principal for the given role
 	Get(role string) (*msp.MSPPrincipal, error)
@@ -40,9 +48,8 @@ func (m *localMSPPrincipalGetter) Get(role string) (*msp.MSPPrincipal, error) {
 		return nil, fmt.Errorf("Could not extract local msp identifier [%s]", err)
 	}
 
-	// TODO: put the constants in some more appropriate place
 	switch role {
-	case "admin":
+	case Admins:
 		principalBytes, err := proto.Marshal(&msp.MSPRole{Role: msp.MSPRole_ADMIN, MspIdentifier: mspid})
 		if err != nil {
 			return nil, err
@@ -51,7 +58,7 @@ func (m *localMSPPrincipalGetter) Get(role string) (*msp.MSPPrincipal, error) {
 		return &msp.MSPPrincipal{
 			PrincipalClassification: msp.MSPPrincipal_ROLE,
 			Principal:               principalBytes}, nil
-	case "member":
+	case Members:
 		principalBytes, err := proto.Marshal(&msp.MSPRole{Role: msp.MSPRole_MEMBER, MspIdentifier: mspid})
 		if err != nil {
 			return nil, err

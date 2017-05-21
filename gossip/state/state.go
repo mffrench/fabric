@@ -19,7 +19,6 @@ package state
 import (
 	"bytes"
 	"errors"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,8 +95,6 @@ type GossipStateProviderImpl struct {
 
 	commChan <-chan proto.ReceivedMessage
 
-	mutex sync.RWMutex
-
 	// Queue of payloads which wasn't acquired yet
 	payloads PayloadsBuffer
 
@@ -107,13 +104,13 @@ type GossipStateProviderImpl struct {
 
 	stateRequestCh chan proto.ReceivedMessage
 
-	stateTransferActive int32
-
 	stopCh chan struct{}
 
 	done sync.WaitGroup
 
 	once sync.Once
+
+	stateTransferActive int32
 }
 
 var logger *logging.Logger // package-level logger
@@ -297,6 +294,9 @@ func (s *GossipStateProviderImpl) processStateRequests() {
 // Handle state request message, validate batch size, read current leader state to
 // obtain required blocks, build response message and send it back
 func (s *GossipStateProviderImpl) handleStateRequest(msg proto.ReceivedMessage) {
+	if msg == nil {
+		return
+	}
 	request := msg.GetGossipMessage().GetStateRequest()
 
 	batchSize := request.EndSeqNum - request.StartSeqNum
@@ -306,7 +306,7 @@ func (s *GossipStateProviderImpl) handleStateRequest(msg proto.ReceivedMessage) 
 		return
 	}
 
-	if batchSize < 0 {
+	if request.StartSeqNum > request.EndSeqNum {
 		logger.Errorf("Invalid sequence interval [%d...%d], ignoring request...", request.StartSeqNum, request.EndSeqNum)
 		return
 	}
@@ -341,7 +341,6 @@ func (s *GossipStateProviderImpl) handleStateRequest(msg proto.ReceivedMessage) 
 		response.Payloads = append(response.Payloads, &proto.Payload{
 			SeqNum: seqNum,
 			Data:   blockBytes,
-			Hash:   string(blocks[0].Header.Hash()),
 		})
 	}
 	// Sending back response with missing blocks
@@ -364,7 +363,7 @@ func (s *GossipStateProviderImpl) handleStateResponse(msg proto.ReceivedMessage)
 	}
 	for _, payload := range response.GetPayloads() {
 		logger.Debugf("Received payload with sequence number %d.", payload.SeqNum)
-		if err := s.mcs.VerifyBlock(common2.ChainID(s.chainID), payload.Data); err != nil {
+		if err := s.mcs.VerifyBlock(common2.ChainID(s.chainID), payload.SeqNum, payload.Data); err != nil {
 			logger.Warningf("Error verifying block with sequence number %d, due to %s", payload.SeqNum, err)
 			return uint64(0), err
 		}
@@ -398,8 +397,8 @@ func (s *GossipStateProviderImpl) Stop() {
 // New message notification/handler
 func (s *GossipStateProviderImpl) queueNewMessage(msg *proto.GossipMessage) {
 	if !bytes.Equal(msg.Channel, []byte(s.chainID)) {
-		logger.Warning("Received state transfer request for channel",
-			string(msg.Channel), "while expecting channel", s.chainID, "skipping request...")
+		logger.Warning("Received enqueue for channel",
+			string(msg.Channel), "while expecting channel", s.chainID, "ignoring enqueue")
 		return
 	}
 
@@ -424,14 +423,18 @@ func (s *GossipStateProviderImpl) deliverPayloads() {
 			logger.Debugf("Ready to transfer payloads to the ledger, next sequence number is = [%d]", s.payloads.Next())
 			// Collect all subsequent payloads
 			for payload := s.payloads.Pop(); payload != nil; payload = s.payloads.Pop() {
-				rawblock := &common.Block{}
-				if err := pb.Unmarshal(payload.Data, rawblock); err != nil {
+				rawBlock := &common.Block{}
+				if err := pb.Unmarshal(payload.Data, rawBlock); err != nil {
 					logger.Errorf("Error getting block with seqNum = %d due to (%s)...dropping block", payload.SeqNum, err)
 					continue
 				}
-
-				logger.Debug("New block with sequence number ", payload.SeqNum, " transactions num ", len(rawblock.Data.Data))
-				s.commitBlock(rawblock)
+				if rawBlock.Data == nil || rawBlock.Header == nil {
+					logger.Errorf("Block with claimed sequence %d has no header (%v) or data (%v)",
+						payload.SeqNum, rawBlock.Header, rawBlock.Data)
+					continue
+				}
+				logger.Debug("New block with claimed sequence number ", payload.SeqNum, " transactions num ", len(rawBlock.Data.Data))
+				s.commitBlock(rawBlock)
 			}
 		case <-s.stopCh:
 			s.stopCh <- struct{}{}
@@ -543,7 +546,7 @@ func (s *GossipStateProviderImpl) requestBlocksInRange(start uint64, end uint64)
 // Generate state request message for given blocks in range [beginSeq...endSeq]
 func (s *GossipStateProviderImpl) stateRequestMessage(beginSeq uint64, endSeq uint64) *proto.GossipMessage {
 	return &proto.GossipMessage{
-		Nonce:   uint64(rand.Uint32())<<32 + uint64(rand.Uint32()),
+		Nonce:   util.RandomUInt64(),
 		Tag:     proto.GossipMessage_CHAN_OR_ORG,
 		Channel: []byte(s.chainID),
 		Content: &proto.GossipMessage_StateRequest{
@@ -562,11 +565,11 @@ func (s *GossipStateProviderImpl) selectPeerToRequestFrom(height uint64) (*comm.
 
 	n := len(peers)
 	if n == 0 {
-		return nil, errors.New("There are no peers to ask for missing blocks from.")
+		return nil, errors.New("there are no peers to ask for missing blocks from")
 	}
 
 	// Select peers to ask for blocks
-	return peers[rand.Intn(n)], nil
+	return peers[util.RandomInt(n)], nil
 }
 
 // filterPeers return list of peers which aligns the predicate provided

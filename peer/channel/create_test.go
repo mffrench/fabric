@@ -17,21 +17,85 @@
 package channel
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/golang/protobuf/proto"
-
-	"errors"
-
 	"github.com/hyperledger/fabric/msp/mgmt/testtools"
 	"github.com/hyperledger/fabric/peer/common"
 	cb "github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/protos/orderer"
+	"google.golang.org/grpc"
 )
+
+type timeoutOrderer struct {
+	counter int
+	net.Listener
+	*grpc.Server
+	nextExpectedSeek uint64
+	t                *testing.T
+	blockChannel     chan uint64
+}
+
+func newOrderer(port int, t *testing.T) *timeoutOrderer {
+	srv := grpc.NewServer()
+	lsnr, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+	if err != nil {
+		panic(err)
+	}
+	go srv.Serve(lsnr)
+	o := &timeoutOrderer{Server: srv,
+		Listener:         lsnr,
+		t:                t,
+		nextExpectedSeek: uint64(1),
+		blockChannel:     make(chan uint64, 1),
+		counter:          int(1),
+	}
+	orderer.RegisterAtomicBroadcastServer(srv, o)
+	return o
+}
+
+func (o *timeoutOrderer) Shutdown() {
+	o.Server.Stop()
+	o.Listener.Close()
+}
+
+func (*timeoutOrderer) Broadcast(orderer.AtomicBroadcast_BroadcastServer) error {
+	panic("Should not have been called")
+}
+
+func (o *timeoutOrderer) SendBlock(seq uint64) {
+	o.blockChannel <- seq
+}
+
+func (o *timeoutOrderer) Deliver(stream orderer.AtomicBroadcast_DeliverServer) error {
+	o.timeoutIncrement()
+	if o.counter > 5 {
+		o.sendBlock(stream, 0)
+	}
+	return nil
+}
+
+func (o *timeoutOrderer) sendBlock(stream orderer.AtomicBroadcast_DeliverServer, seq uint64) {
+	block := &cb.Block{
+		Header: &cb.BlockHeader{
+			Number: seq,
+		},
+	}
+	stream.Send(&orderer.DeliverResponse{
+		Type: &orderer.DeliverResponse_Block{Block: block},
+	})
+}
+
+func (o *timeoutOrderer) timeoutIncrement() {
+	o.counter++
+}
 
 var once sync.Once
 
@@ -56,26 +120,19 @@ func (m *mockDeliverClient) getBlock() (*cb.Block, error) {
 	return b, nil
 }
 
+func (m *mockDeliverClient) Close() error {
+	return nil
+}
+
 // InitMSP init MSP
 func InitMSP() {
 	once.Do(initMSP)
 }
 
 func initMSP() {
-	// TODO: determine the location of this config file
-	var alternativeCfgPath = os.Getenv("PEER_CFG_PATH")
-	var mspMgrConfigDir string
-	if alternativeCfgPath != "" {
-		mspMgrConfigDir = alternativeCfgPath + "/msp/sampleconfig/"
-	} else if _, err := os.Stat("./msp/sampleconfig/"); err == nil {
-		mspMgrConfigDir = "./msp/sampleconfig/"
-	} else {
-		mspMgrConfigDir = os.Getenv("GOPATH") + "/src/github.com/hyperledger/fabric/msp/sampleconfig/"
-	}
-
-	err := msptesttools.LoadMSPSetupForTesting(mspMgrConfigDir)
+	err := msptesttools.LoadMSPSetupForTesting()
 	if err != nil {
-		panic(fmt.Errorf("Fatal error when reading MSP config file %s: err %s\n", mspMgrConfigDir, err))
+		panic(fmt.Errorf("Fatal error when reading MSP config: err %s\n", err))
 	}
 }
 
@@ -110,7 +167,7 @@ func TestCreateChain(t *testing.T) {
 
 	if err := cmd.Execute(); err != nil {
 		t.Fail()
-		t.Errorf("expected join command to succeed")
+		t.Errorf("expected create command to succeed")
 	}
 }
 
@@ -141,7 +198,75 @@ func TestCreateChainWithDefaultAnchorPeers(t *testing.T) {
 
 	if err := cmd.Execute(); err != nil {
 		t.Fail()
-		t.Errorf("expected join command to succeed")
+		t.Errorf("expected create command to succeed")
+	}
+}
+
+func TestCreateChainWithWaitSuccess(t *testing.T) {
+	InitMSP()
+
+	mockchain := "mockchain"
+
+	signer, err := common.GetDefaultSigner()
+	if err != nil {
+		t.Fatalf("Get default signer error: %v", err)
+	}
+
+	sendErr := errors.New("timeout waiting for channel creation")
+	mockCF := &ChannelCmdFactory{
+		BroadcastFactory: mockBroadcastClientFactory,
+		Signer:           signer,
+		DeliverClient:    &mockDeliverClient{sendErr},
+	}
+	fakeOrderer := newOrderer(7050, t)
+	defer fakeOrderer.Shutdown()
+
+	cmd := createCmd(mockCF)
+
+	AddFlags(cmd)
+
+	args := []string{"-c", mockchain, "-o", "localhost:7050"}
+	cmd.SetArgs(args)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fail()
+		t.Errorf("expected create command to succeed")
+	}
+}
+
+func TestCreateChainWithTimeoutErr(t *testing.T) {
+	InitMSP()
+
+	mockchain := "mockchain"
+
+	signer, err := common.GetDefaultSigner()
+	if err != nil {
+		t.Fatalf("Get default signer error: %v", err)
+	}
+
+	sendErr := errors.New("timeout waiting for channel creation")
+	mockCF := &ChannelCmdFactory{
+		BroadcastFactory: mockBroadcastClientFactory,
+		Signer:           signer,
+		DeliverClient:    &mockDeliverClient{sendErr},
+	}
+	fakeOrderer := newOrderer(7050, t)
+	defer fakeOrderer.Shutdown()
+
+	cmd := createCmd(mockCF)
+
+	AddFlags(cmd)
+
+	args := []string{"-c", mockchain, "-o", "localhost:7050", "-t", "1"}
+	cmd.SetArgs(args)
+
+	expectedErrMsg := sendErr.Error()
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected create chain to fail with broadcast error")
+	} else {
+		if err.Error() != expectedErrMsg {
+			t.Errorf("Run create chain get unexpected error: %s(expected %s)", err.Error(), expectedErrMsg)
+		}
 	}
 }
 
@@ -196,12 +321,14 @@ func TestCreateChainDeliverFail(t *testing.T) {
 		t.Fatalf("Get default signer error: %v", err)
 	}
 
-	recvErr := fmt.Errorf("deliver create tx failed")
+	sendErr := fmt.Errorf("failed connecting")
 
 	mockCF := &ChannelCmdFactory{
-		BroadcastFactory: mockBroadcastClientFactory,
-		Signer:           signer,
-		DeliverClient:    &mockDeliverClient{recvErr},
+		BroadcastFactory: func() (common.BroadcastClient, error) {
+			return common.GetMockBroadcastClient(sendErr), nil
+		},
+		Signer:        signer,
+		DeliverClient: &mockDeliverClient{sendErr},
 	}
 
 	cmd := createCmd(mockCF)
@@ -211,7 +338,7 @@ func TestCreateChainDeliverFail(t *testing.T) {
 	args := []string{"-c", mockchain, "-o", "localhost:7050"}
 	cmd.SetArgs(args)
 
-	expectedErrMsg := recvErr.Error()
+	expectedErrMsg := sendErr.Error()
 	if err := cmd.Execute(); err == nil {
 		t.Errorf("expected create chain to fail with deliver error")
 	} else {

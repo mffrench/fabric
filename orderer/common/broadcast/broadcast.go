@@ -74,6 +74,7 @@ func NewHandlerImpl(sm SupportManager) Handler {
 
 // Handle starts a service thread for a given gRPC connection and services the broadcast connection
 func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
+	logger.Debugf("Starting new broadcast loop")
 	for {
 		msg, err := srv.Recv()
 		if err == io.EOF {
@@ -142,7 +143,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 		}
 
 		if logger.IsEnabledFor(logging.DEBUG) {
-			logger.Debugf("Broadcast is filtering message of type %d for channel %s", chdr.Type, chdr.ChannelId)
+			logger.Debugf("Broadcast is filtering message of type %s for channel %s", cb.HeaderType_name[chdr.Type], chdr.ChannelId)
 		}
 
 		// Normal transaction for existing chain
@@ -161,7 +162,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 		}
 
 		if logger.IsEnabledFor(logging.DEBUG) {
-			logger.Debugf("Broadcast has successfully enqueued message of type %d for chain %s", chdr.Type, chdr.ChannelId)
+			logger.Debugf("Broadcast has successfully enqueued message of type %s for chain %s", cb.HeaderType_name[chdr.Type], chdr.ChannelId)
 		}
 
 		err = srv.Send(&ab.BroadcastResponse{Status: cb.Status_SUCCESS})

@@ -18,26 +18,20 @@ package provisional
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"testing"
 
 	genesisconfig "github.com/hyperledger/fabric/common/configtx/tool/localconfig"
 	cb "github.com/hyperledger/fabric/protos/common"
+	"github.com/stretchr/testify/assert"
 )
 
-var confSolo, confKafka *genesisconfig.Profile
+var confSolo *genesisconfig.Profile
+var confKafka *genesisconfig.Profile
 var testCases []*genesisconfig.Profile
 
 func init() {
-	// Configuration is always specified relative to $GOPATH/github.com/hyperledger/fabric
-	// This test will fail with the default configuration if executed in the package dir
-	// We are in common/configtx/tool/provisional
-	os.Chdir(filepath.Join("..", "..", "..", ".."))
-
 	confSolo = genesisconfig.Load(genesisconfig.SampleSingleMSPSoloProfile)
-	confKafka = genesisconfig.Load(genesisconfig.SampleSingleMSPSoloProfile)
-	confKafka.Orderer.OrdererType = ConsensusTypeKafka
+	confKafka = genesisconfig.Load("SampleInsecureKafka")
 	testCases = []*genesisconfig.Profile{confSolo, confKafka}
 }
 
@@ -65,5 +59,15 @@ func TestGenesisMetadata(t *testing.T) {
 		if genesisBlock.Metadata.Metadata[cb.BlockMetadataIndex_LAST_CONFIG] == nil {
 			t.Fatalf("Should have last config set")
 		}
+	}
+}
+
+func TestGenesisBlockForChannelHeader(t *testing.T) {
+	expectedHeaderNumber := uint64(0)
+
+	for _, tc := range testCases {
+		genesisBlock := New(tc).GenesisBlockForChannel("mychannel")
+		assert.Equal(t, expectedHeaderNumber, genesisBlock.Header.Number, "Case %s: Header number should be equal", tc.Orderer.OrdererType)
+		assert.Nil(t, genesisBlock.Header.PreviousHash, "Case %s: Header previousHash to be nil", tc.Orderer.OrdererType)
 	}
 }

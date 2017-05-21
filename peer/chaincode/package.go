@@ -76,7 +76,7 @@ func packageCmd(cf *ChaincodeCmdFactory, cdsFact ccDepSpecFactory) *cobra.Comman
 func getInstantiationPolicy(policy string) (*pcommon.SignaturePolicyEnvelope, error) {
 	p, err := cauthdsl.FromString(policy)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid policy %s", policy)
+		return nil, fmt.Errorf("Invalid policy %s, err %s", policy, err)
 	}
 	return p, nil
 }
@@ -138,7 +138,7 @@ func getChaincodeInstallPackage(cds *pb.ChaincodeDeploymentSpec, cf *ChaincodeCm
 	return bytesToWrite, nil
 }
 
-// chaincodePackage creates the chaincode packge. On success, the chaincode name
+// chaincodePackage creates the chaincode package. On success, the chaincode name
 // (hash) is printed to STDOUT for use by subsequent chaincode-related CLI
 // commands.
 func chaincodePackage(cmd *cobra.Command, args []string, cdsFact ccDepSpecFactory, cf *ChaincodeCmdFactory) error {

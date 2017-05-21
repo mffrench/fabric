@@ -17,31 +17,58 @@ limitations under the License.
 package config
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/viperutil"
 
 	"github.com/Shopify/sarama"
 	"github.com/op/go-logging"
 	"github.com/spf13/viper"
 
+	cf "github.com/hyperledger/fabric/core/config"
+
+	"path/filepath"
+
 	bccsp "github.com/hyperledger/fabric/bccsp/factory"
 )
 
-var logger = logging.MustGetLogger("orderer/config")
+const (
+	pkgLogID = "orderer/localconfig"
+
+	// Prefix identifies the prefix for the orderer-related ENV vars.
+	Prefix = "ORDERER"
+)
+
+var (
+	logger *logging.Logger
+
+	configName string
+)
 
 func init() {
-	logging.SetLevel(logging.ERROR, "")
+	logger = flogging.MustGetLogger(pkgLogID)
+	flogging.SetModuleLevel(pkgLogID, "error")
+
+	configName = strings.ToLower(Prefix)
 }
 
-// Prefix is the default config prefix for the orderer
-const Prefix string = "ORDERER"
+// TopLevel directly corresponds to the orderer config YAML.
+// Note, for non 1-1 mappings, you may append
+// something like `mapstructure:"weirdFoRMat"` to
+// modify the default mapping, see the "Unmarshal"
+// section of https://github.com/spf13/viper for more info
+type TopLevel struct {
+	General    General
+	FileLedger FileLedger
+	RAMLedger  RAMLedger
+	Kafka      Kafka
+	Genesis    Genesis
+	SbftLocal  SbftLocal
+}
 
-// General contains config which should be common among all orderer types
+// General contains config which should be common among all orderer types.
 type General struct {
 	LedgerType     string
 	ListenAddress  string
@@ -57,7 +84,7 @@ type General struct {
 	BCCSP          *bccsp.FactoryOpts
 }
 
-//TLS contains config used to configure TLS
+// TLS contains config for TLS connections.
 type TLS struct {
 	Enabled           bool
 	PrivateKey        string
@@ -67,42 +94,48 @@ type TLS struct {
 	ClientRootCAs     []string
 }
 
+// Profile contains configuration for Go pprof profiling.
+type Profile struct {
+	Enabled bool
+	Address string
+}
+
+// FileLedger contains configuration for the file-based ledger.
+type FileLedger struct {
+	Location string
+	Prefix   string
+}
+
+// RAMLedger contains configuration for the RAM ledger.
+type RAMLedger struct {
+	HistorySize uint
+}
+
+// Kafka contains configuration for the Kafka-based orderer.
+type Kafka struct {
+	Retry   Retry
+	Verbose bool
+	Version sarama.KafkaVersion // TODO Move this to global config
+	TLS     TLS
+}
+
+// Retry contains config for the reconnection attempts to the Kafka brokers.
+type Retry struct {
+	Period time.Duration
+	Stop   time.Duration
+}
+
 // Genesis is a deprecated structure which was used to put
-// values into the genesis block, but this is now handled elsewhere
+// values into the genesis block, but this is now handled elsewhere.
 // SBFT did not reference these values via the genesis block however
-// so it is being left here for backwards compatibility purposes
+// so it is being left here for backwards compatibility purposes.
 type Genesis struct {
 	DeprecatedBatchTimeout time.Duration
 	DeprecatedBatchSize    uint32
 	SbftShared             SbftShared
 }
 
-// Profile contains configuration for Go pprof profiling
-type Profile struct {
-	Enabled bool
-	Address string
-}
-
-// RAMLedger contains config for the RAM ledger
-type RAMLedger struct {
-	HistorySize uint
-}
-
-// FileLedger contains config for the File ledger
-type FileLedger struct {
-	Location string
-	Prefix   string
-}
-
-// Kafka contains config for the Kafka orderer
-type Kafka struct {
-	Retry   Retry
-	Verbose bool
-	Version sarama.KafkaVersion
-	TLS     TLS
-}
-
-// SbftLocal contains config for the SBFT peer/replica
+// SbftLocal contains configuration for the SBFT peer/replica.
 type SbftLocal struct {
 	PeerCommAddr string
 	CertFile     string
@@ -110,7 +143,7 @@ type SbftLocal struct {
 	DataDir      string
 }
 
-// SbftShared contains config for the SBFT network
+// SbftShared contains config for the SBFT network.
 type SbftShared struct {
 	N                  uint64
 	F                  uint64
@@ -118,45 +151,20 @@ type SbftShared struct {
 	Peers              map[string]string // Address to Cert mapping
 }
 
-// Retry contains config for the reconnection attempts to the Kafka brokers
-type Retry struct {
-	Period time.Duration
-	Stop   time.Duration
-}
-
-type RuntimeAndGenesis struct {
-	runtime *TopLevel
-	genesis *Genesis
-}
-
-// TopLevel directly corresponds to the orderer config yaml
-// Note, for non 1-1 mappings, you may append
-// something like `mapstructure:"weirdFoRMat"` to
-// modify the default mapping, see the "Unmarshal"
-// section of https://github.com/spf13/viper for more info
-type TopLevel struct {
-	General    General
-	RAMLedger  RAMLedger
-	FileLedger FileLedger
-	Kafka      Kafka
-	Genesis    Genesis
-	SbftLocal  SbftLocal
-}
-
 var defaults = TopLevel{
 	General: General{
-		LedgerType:     "ram",
+		LedgerType:     "file",
 		ListenAddress:  "127.0.0.1",
 		ListenPort:     7050,
 		GenesisMethod:  "provisional",
 		GenesisProfile: "SampleSingleMSPSolo",
-		GenesisFile:    "./genesisblock",
+		GenesisFile:    "genesisblock",
 		Profile: Profile{
 			Enabled: false,
 			Address: "0.0.0.0:6060",
 		},
 		LogLevel:    "INFO",
-		LocalMSPDir: "../msp/sampleconfig/",
+		LocalMSPDir: "msp",
 		LocalMSPID:  "DEFAULT",
 		BCCSP:       &bccsp.DefaultOpts,
 	},
@@ -164,7 +172,7 @@ var defaults = TopLevel{
 		HistorySize: 10000,
 	},
 	FileLedger: FileLedger{
-		Location: "",
+		Location: "/var/hyperledger/production/orderer",
 		Prefix:   "hyperledger-fabric-ordererledger",
 	},
 	Kafka: Kafka{
@@ -194,8 +202,43 @@ var defaults = TopLevel{
 	},
 }
 
-func (c *TopLevel) completeInitialization() {
-	defer logger.Infof("Validated configuration to: %+v", c)
+// Load parses the orderer.yaml file and environment, producing a struct suitable for config use
+func Load() *TopLevel {
+	config := viper.New()
+	cf.InitViper(config, configName)
+
+	// for environment variables
+	config.SetEnvPrefix(Prefix)
+	config.AutomaticEnv()
+	replacer := strings.NewReplacer(".", "_")
+	config.SetEnvKeyReplacer(replacer)
+
+	err := config.ReadInConfig()
+	if err != nil {
+		logger.Panic("Error reading configuration:", err)
+	}
+
+	var uconf TopLevel
+	err = viperutil.EnhancedExactUnmarshal(config, &uconf)
+	if err != nil {
+		logger.Panic("Error unmarshaling config into struct:", err)
+	}
+
+	uconf.completeInitialization(filepath.Dir(config.ConfigFileUsed()))
+
+	return &uconf
+}
+
+func (c *TopLevel) completeInitialization(configDir string) {
+	defer func() {
+		// Translate any paths
+		c.General.TLS.RootCAs = translateCAs(configDir, c.General.TLS.RootCAs)
+		c.General.TLS.ClientRootCAs = translateCAs(configDir, c.General.TLS.ClientRootCAs)
+		cf.TranslatePathInPlace(configDir, &c.General.TLS.PrivateKey)
+		cf.TranslatePathInPlace(configDir, &c.General.TLS.Certificate)
+		cf.TranslatePathInPlace(configDir, &c.General.GenesisFile)
+		cf.TranslatePathInPlace(configDir, &c.General.LocalMSPDir)
+	}()
 
 	for {
 		switch {
@@ -228,10 +271,7 @@ func (c *TopLevel) completeInitialization() {
 			c.General.Profile.Address = defaults.General.Profile.Address
 		case c.General.LocalMSPDir == "":
 			logger.Infof("General.LocalMSPDir unset, setting to %s", defaults.General.LocalMSPDir)
-			// Note, this is a bit of a weird one, the orderer may set the ORDERER_CFG_PATH after
-			// the file is initialized, so we cannot initialize this in the structure, so we
-			// deference the env portion here
-			c.General.LocalMSPDir = filepath.Join(os.Getenv("ORDERER_CFG_PATH"), defaults.General.LocalMSPDir)
+			c.General.LocalMSPDir = defaults.General.LocalMSPDir
 		case c.General.LocalMSPID == "":
 			logger.Infof("General.LocalMSPID unset, setting to %s", defaults.General.LocalMSPID)
 			c.General.LocalMSPID = defaults.General.LocalMSPID
@@ -253,51 +293,11 @@ func (c *TopLevel) completeInitialization() {
 	}
 }
 
-// Load parses the orderer.yaml file and environment, producing a struct suitable for config use
-func Load() *TopLevel {
-	config := viper.New()
-
-	config.SetConfigName("orderer")
-	cfgPath := os.Getenv("ORDERER_CFG_PATH")
-	if cfgPath == "" {
-		logger.Infof("No orderer cfg path set, assuming development environment, deriving from go path")
-		// Path to look for the config file in based on GOPATH
-		gopath := os.Getenv("GOPATH")
-		for _, p := range filepath.SplitList(gopath) {
-			ordererPath := filepath.Join(p, "src/github.com/hyperledger/fabric/orderer/")
-			if _, err := os.Stat(filepath.Join(ordererPath, "orderer.yaml")); err != nil {
-				// The yaml file does not exist in this component of the go src
-				continue
-			}
-			cfgPath = ordererPath
-		}
-		if cfgPath == "" {
-			logger.Fatalf("Could not find orderer.yaml, try setting ORDERER_CFG_PATH or GOPATH correctly")
-		}
-		logger.Infof("Setting ORDERER_CFG_PATH to: %s", cfgPath)
-		os.Setenv("ORDERER_CFG_PATH", cfgPath)
+func translateCAs(configDir string, certificateAuthorities []string) []string {
+	results := make([]string, 0)
+	for _, ca := range certificateAuthorities {
+		result := cf.TranslatePath(configDir, ca)
+		results = append(results, result)
 	}
-	config.AddConfigPath(cfgPath) // Path to look for the config file in
-
-	// for environment variables
-	config.SetEnvPrefix(Prefix)
-	config.AutomaticEnv()
-	replacer := strings.NewReplacer(".", "_")
-	config.SetEnvKeyReplacer(replacer)
-
-	err := config.ReadInConfig()
-	if err != nil {
-		panic(fmt.Errorf("Error reading %s plugin config: %s", Prefix, err))
-	}
-
-	var uconf TopLevel
-
-	err = viperutil.EnhancedExactUnmarshal(config, &uconf)
-	if err != nil {
-		panic(fmt.Errorf("Error unmarshaling into structure: %s", err))
-	}
-
-	uconf.completeInitialization()
-
-	return &uconf
+	return results
 }

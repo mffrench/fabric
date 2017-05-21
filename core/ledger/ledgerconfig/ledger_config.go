@@ -19,28 +19,13 @@ package ledgerconfig
 import (
 	"path/filepath"
 
+	"github.com/hyperledger/fabric/core/config"
 	"github.com/spf13/viper"
 )
 
-// TODO remove all these config variables, they are never used as defaults
-var stateDatabase = "goleveldb"
-var couchDBAddress = "127.0.0.1:5984"
-var username = ""
-var password = ""
-var historyDatabase = true
-
-var maxBlockFileSize = 0
-
-// CouchDBDef contains parameters
-type CouchDBDef struct {
-	URL      string
-	Username string
-	Password string
-}
-
 //IsCouchDBEnabled exposes the useCouchDB variable
 func IsCouchDBEnabled() bool {
-	stateDatabase = viper.GetString("ledger.state.stateDatabase")
+	stateDatabase := viper.GetString("ledger.state.stateDatabase")
 	if stateDatabase == "CouchDB" {
 		return true
 	}
@@ -50,7 +35,7 @@ func IsCouchDBEnabled() bool {
 // GetRootPath returns the filesystem path.
 // All ledger related contents are expected to be stored under this path
 func GetRootPath() string {
-	sysPath := viper.GetString("peer.fileSystemPath")
+	sysPath := config.GetPath("peer.fileSystemPath")
 	return filepath.Join(sysPath, "ledgersData")
 }
 
@@ -79,16 +64,6 @@ func GetMaxBlockfileSize() int {
 	return 64 * 1024 * 1024
 }
 
-//GetCouchDBDefinition exposes the useCouchDB variable
-func GetCouchDBDefinition() *CouchDBDef {
-
-	couchDBAddress = viper.GetString("ledger.state.couchDBConfig.couchDBAddress")
-	username = viper.GetString("ledger.state.couchDBConfig.username")
-	password = viper.GetString("ledger.state.couchDBConfig.password")
-
-	return &CouchDBDef{couchDBAddress, username, password}
-}
-
 //GetQueryLimit exposes the queryLimit variable
 func GetQueryLimit() int {
 	queryLimit := viper.GetInt("ledger.state.queryLimit")
@@ -101,7 +76,7 @@ func GetQueryLimit() int {
 
 //IsHistoryDBEnabled exposes the historyDatabase variable
 func IsHistoryDBEnabled() bool {
-	return viper.GetBool("ledger.state.historyDatabase")
+	return viper.GetBool("ledger.history.enableHistoryDatabase")
 }
 
 // IsQueryReadsHashingEnabled enables or disables computing of hash

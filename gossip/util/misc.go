@@ -17,7 +17,10 @@ limitations under the License.
 package util
 
 import (
+	cryptorand "crypto/rand"
 	"fmt"
+	"io"
+	"math/big"
 	"math/rand"
 	"reflect"
 	"runtime"
@@ -29,10 +32,6 @@ import (
 
 // Equals returns whether a and b are the same
 type Equals func(a interface{}, b interface{}) bool
-
-func init() {
-	rand.Seed(42)
-}
 
 // IndexInSlice returns the index of given object o in array
 func IndexInSlice(array interface{}, o interface{}, equals Equals) int {
@@ -65,7 +64,7 @@ func GetRandomIndices(indiceCount, highestIndex int) []int {
 	}
 
 	for len(indices) < indiceCount {
-		n := rand.Intn(highestIndex + 1)
+		n := RandomInt(highestIndex + 1)
 		if IndexInSlice(indices, n, numbericEqual) != -1 {
 			continue
 		}
@@ -101,6 +100,13 @@ func (s *Set) Exists(item interface{}) bool {
 	return exists
 }
 
+// Size returns the size of the set
+func (s *Set) Size() int {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return len(s.items)
+}
+
 // ToArray returns a slice with items
 // at the point in time the method was invoked
 func (s *Set) ToArray() []interface{} {
@@ -129,11 +135,6 @@ func (s *Set) Remove(item interface{}) {
 	delete(s.items, item)
 }
 
-type goroutine struct {
-	id    int64
-	Stack []string
-}
-
 // PrintStackTrace prints to stdout
 // all goroutines
 func PrintStackTrace() {
@@ -151,11 +152,36 @@ func GetIntOrDefault(key string, defVal int) int {
 	return defVal
 }
 
-// GetIntOrDefault returns the Duration value from config if present otherwise default value
+// GetDurationOrDefault returns the Duration value from config if present otherwise default value
 func GetDurationOrDefault(key string, defVal time.Duration) time.Duration {
 	if val := viper.GetDuration(key); val != 0 {
 		return val
 	}
 
 	return defVal
+}
+
+// RandomInt returns, as an int, a non-negative pseudo-random integer in [0,n)
+// It panics if n <= 0
+func RandomInt(n int) int {
+	if n <= 0 {
+		panic(fmt.Sprintf("Got invalid (non positive) value: %d", n))
+	}
+	m := int(RandomUInt64()) % n
+	if m < 0 {
+		return n + m
+	}
+	return m
+}
+
+// RandomUInt64 returns a random uint64
+func RandomUInt64() uint64 {
+	b := make([]byte, 8)
+	_, err := io.ReadFull(cryptorand.Reader, b)
+	if err == nil {
+		n := new(big.Int)
+		return n.SetBytes(b).Uint64()
+	}
+	rand.Seed(rand.Int63())
+	return uint64(rand.Int63())
 }

@@ -32,7 +32,7 @@ import (
 
 //----- CDSData ------
 
-//CDSData is data stored in the LCCC on instantiation of a CC
+//CDSData is data stored in the LSCC on instantiation of a CC
 //for CDSPackage.  This needs to be serialized for ChaincodeData
 //hence the protobuf format
 type CDSData struct {
@@ -48,7 +48,7 @@ type CDSData struct {
 //Reset resets
 func (data *CDSData) Reset() { *data = CDSData{} }
 
-//String convers to string
+//String converts to string
 func (data *CDSData) String() string { return proto.CompactTextString(data) }
 
 //ProtoMessage just exists to make proto happy
@@ -146,7 +146,8 @@ func (ccpack *CDSPackage) getCDSData(cds *pb.ChaincodeDeploymentSpec) ([]byte, [
 	cdsdata := &CDSData{}
 
 	//code hash
-	cdsdata.CodeHash = hash.Sum(cds.CodePackage)
+	hash.Write(cds.CodePackage)
+	cdsdata.CodeHash = hash.Sum(nil)
 
 	hash.Reset()
 

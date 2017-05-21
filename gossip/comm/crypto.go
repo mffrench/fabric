@@ -43,13 +43,16 @@ func writeFile(filename string, keyType string, data []byte) error {
 	return pem.Encode(f, &pem.Block{Type: keyType, Bytes: data})
 }
 
-func generateCertificates(privKeyFile string, certKeyFile string) error {
+func GenerateCertificates(privKeyFile string, certKeyFile string) error {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
 	}
 
 	sn, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return err
+	}
 	template := x509.Certificate{
 		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		SerialNumber: sn,

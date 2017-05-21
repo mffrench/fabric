@@ -16,6 +16,7 @@ limitations under the License.
 package ca_test
 
 import (
+	"crypto/ecdsa"
 	"crypto/x509"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ var testDir = filepath.Join(os.TempDir(), "ca-test")
 func TestNewCA(t *testing.T) {
 
 	caDir := filepath.Join(testDir, "ca")
-	rootCA, err := ca.NewCA(caDir, testCAName)
+	rootCA, err := ca.NewCA(caDir, testCAName, testCAName)
 	assert.NoError(t, err, "Error generating CA")
 	assert.NotNil(t, rootCA, "Failed to return CA")
 	assert.NotNil(t, rootCA.Signer,
@@ -53,7 +54,7 @@ func TestNewCA(t *testing.T) {
 
 }
 
-func TestGenerateSignedCertificate(t *testing.T) {
+func TestGenerateSignCertificate(t *testing.T) {
 
 	caDir := filepath.Join(testDir, "ca")
 	certDir := filepath.Join(testDir, "certs")
@@ -67,16 +68,27 @@ func TestGenerateSignedCertificate(t *testing.T) {
 	assert.NotNil(t, ecPubKey, "Failed to generate signed certificate")
 
 	// create our CA
-	rootCA, err := ca.NewCA(caDir, testCA2Name)
+	rootCA, err := ca.NewCA(caDir, testCA2Name, testCA2Name)
 	assert.NoError(t, err, "Error generating CA")
 
-	err = rootCA.SignCertificate(certDir, testName, ecPubKey)
+	_, err = rootCA.SignCertificate(certDir, testName, nil, ecPubKey)
 	assert.NoError(t, err, "Failed to generate signed certificate")
 
 	// check to make sure the signed public key was stored
 	pemFile := filepath.Join(certDir, testName+"-cert.pem")
 	assert.Equal(t, true, checkForFile(pemFile),
 		"Expected to find file "+pemFile)
+
+	_, err = rootCA.SignCertificate(certDir, "empty/CA", nil, ecPubKey)
+	assert.Error(t, err, "Bad name should fail")
+
+	// use an empty CA to test error path
+	badCA := &ca.CA{
+		Name:     "badCA",
+		SignCert: &x509.Certificate{},
+	}
+	_, err = badCA.SignCertificate(certDir, testName, nil, &ecdsa.PublicKey{})
+	assert.Error(t, err, "Empty CA should not be able to sign")
 	cleanup(testDir)
 
 }

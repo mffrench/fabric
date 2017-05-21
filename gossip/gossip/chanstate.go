@@ -55,7 +55,7 @@ func (cs *channelState) isStopping() bool {
 func (cs *channelState) lookupChannelForMsg(msg proto.ReceivedMessage) channel.GossipChannel {
 	if msg.GetGossipMessage().IsStateInfoPullRequestMsg() {
 		sipr := msg.GetGossipMessage().GetStateInfoPullReq()
-		mac := sipr.ChannelMAC
+		mac := sipr.Channel_MAC
 		pkiID := msg.GetConnectionInfo().ID
 		return cs.getGossipChannelByMAC(mac, pkiID)
 	}
@@ -75,7 +75,7 @@ func (cs *channelState) lookupChannelForGossipMsg(msg *proto.GossipMessage) chan
 
 	// Else, it's a StateInfo message.
 	stateInfMsg := msg.GetStateInfo()
-	return cs.getGossipChannelByMAC(stateInfMsg.ChannelMAC, stateInfMsg.PkiId)
+	return cs.getGossipChannelByMAC(stateInfMsg.Channel_MAC, stateInfMsg.PkiId)
 }
 
 func (cs *channelState) getGossipChannelByMAC(receivedMAC []byte, pkiID common.PKIidType) channel.GossipChannel {
@@ -86,7 +86,7 @@ func (cs *channelState) getGossipChannelByMAC(receivedMAC []byte, pkiID common.P
 	cs.RLock()
 	defer cs.RUnlock()
 	for chanName, gc := range cs.channels {
-		mac := channel.ChannelMAC(pkiID, common.ChainID(chanName))
+		mac := channel.GenerateMAC(pkiID, common.ChainID(chanName))
 		if bytes.Equal(mac, receivedMAC) {
 			return gc
 		}
@@ -112,7 +112,7 @@ func (cs *channelState) joinChannel(joinMsg api.JoinChannelMessage, chainID comm
 	if gc, exists := cs.channels[string(chainID)]; !exists {
 		pkiID := cs.g.comm.GetPKIid()
 		ga := &gossipAdapterImpl{gossipServiceImpl: cs.g, Discovery: cs.g.disc}
-		gc := channel.NewGossipChannel(pkiID, cs.g.mcs, chainID, ga, joinMsg)
+		gc := channel.NewGossipChannel(pkiID, cs.g.selfOrg, cs.g.mcs, chainID, ga, joinMsg)
 		cs.channels[string(chainID)] = gc
 	} else {
 		gc.ConfigureChannel(joinMsg)
@@ -126,12 +126,14 @@ type gossipAdapterImpl struct {
 
 func (ga *gossipAdapterImpl) GetConf() channel.Config {
 	return channel.Config{
-		ID:                       ga.conf.ID,
-		MaxBlockCountToStore:     ga.conf.MaxBlockCountToStore,
-		PublishStateInfoInterval: ga.conf.PublishStateInfoInterval,
-		PullInterval:             ga.conf.PullInterval,
-		PullPeerNum:              ga.conf.PullPeerNum,
-		RequestStateInfoInterval: ga.conf.RequestStateInfoInterval,
+		ID:                          ga.conf.ID,
+		MaxBlockCountToStore:        ga.conf.MaxBlockCountToStore,
+		PublishStateInfoInterval:    ga.conf.PublishStateInfoInterval,
+		PullInterval:                ga.conf.PullInterval,
+		PullPeerNum:                 ga.conf.PullPeerNum,
+		RequestStateInfoInterval:    ga.conf.RequestStateInfoInterval,
+		BlockExpirationInterval:     ga.conf.PullInterval * 100,
+		StateInfoExpirationInterval: ga.conf.PublishStateInfoInterval * 100,
 	}
 }
 
