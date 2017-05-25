@@ -253,7 +253,7 @@ func (vm *DockerVM) Start(ctxt context.Context, ccid ccintf.CCID,
 				return err
 			}
 		} else {
-			dockerLogger.Errorf("start-could not recreate container %s", err)
+			dockerLogger.Errorf("start-could not recreate container: %s", err)
 			return err
 		}
 	}
@@ -267,7 +267,9 @@ func (vm *DockerVM) Start(ctxt context.Context, ccid ccintf.CCID,
 		go func() {
 			// AttachToContainer will fire off a message on the "attached" channel once the
 			// attachment completes, and then block until the container is terminated.
-			err = client.AttachToContainer(docker.AttachToContainerOptions{
+			// The returned error is not used outside the scope of this function. Assign the
+			// error to a local variable to prevent clobbering the function variable 'err'.
+			err := client.AttachToContainer(docker.AttachToContainerOptions{
 				Container:    containerID,
 				OutputStream: w,
 				ErrorStream:  w,
@@ -329,7 +331,7 @@ func (vm *DockerVM) Start(ctxt context.Context, ccid ccintf.CCID,
 	// start container with HostConfig was deprecated since v1.10 and removed in v1.2
 	err = client.StartContainer(containerID, nil)
 	if err != nil {
-		dockerLogger.Errorf("start-could not start container %s", err)
+		dockerLogger.Errorf("start-could not start container: %s", err)
 		return err
 	}
 
