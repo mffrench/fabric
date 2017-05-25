@@ -130,6 +130,8 @@ func NewManagerImpl(ledgerFactory ledger.Factory, consenters map[string]Consente
 				consenters,
 				signer)
 			ml.chains[string(chainID)] = chain
+			ml.systemChannelID = chainID
+			ml.systemChannel = chain
 			chain.start()
 		}
 
