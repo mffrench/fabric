@@ -39,6 +39,7 @@ message ChaincodeMessage {
         PUT_STATE = 9;
         DEL_STATE = 10;
         INVOKE_CHAINCODE = 11;
+        GET_K_STATE_BY_MULTIPLE_KEYS = 12;
         RESPONSE = 13;
         GET_STATE_BY_RANGE = 14;
         GET_QUERY_RESULT = 15;
@@ -64,6 +65,10 @@ message ChaincodeMessage {
 message PutStateInfo {
     string key = 1;
     bytes value = 2;
+}
+
+message GetKStateByMultipleKeysResponse {
+    map<string, bytes> keyStates = 1;
 }
 
 message GetStateByRange {

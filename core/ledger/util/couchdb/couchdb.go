@@ -880,6 +880,68 @@ func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip
 
 }
 
+func (dbclient *CouchDatabase) ReadKeysIndex(keys []string) (map[string]*CouchDoc, error) {
+	readURL, err := url.Parse(dbclient.CouchInstance.conf.URL)
+	if err != nil {
+		logger.Errorf("URL parse error: %s", err.Error())
+		return nil, err
+	}
+	readURL.Path = dbclient.DBName + "/_all_docs"
+	readURL = &url.URL{Opaque: readURL.String()}
+	queryParms := readURL.Query()
+	queryParms.Set("include_docs", strconv.FormatBool(true))
+	readURL.RawQuery = queryParms.Encode()
+
+	//Set up a buffer for the data to be pushed to couchdb
+	// TODO: check CouchDB POST data limit if any and split the request in several chunk if needed
+	keymap := make(map[string]interface{})
+	keymap["keys"] = keys
+	data, err := json.Marshal(keymap)
+	if err != nil {
+		return nil, err
+	}
+
+	//get the number of retries
+	maxRetries := dbclient.CouchInstance.conf.MaxRetries
+	//func (couchInstance *CouchInstance) handleRequest(method, connectURL string, data []byte, rev string,
+	resp, _, err := dbclient.CouchInstance.handleRequest(
+		http.MethodPost, readURL.String(), data, "", "", maxRetries)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonResponse = &RangeQueryResponse{}
+	err2 := json.Unmarshal(jsonResponseRaw, &jsonResponse)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	ret := map[string]*CouchDoc{}
+	for _, key := range keys {
+		if key != "" {
+			ret[key] = nil
+		} else {
+			logger.Warningf("Empty key from docsAllKeys.Keys ?!")
+		}
+	}
+	for _, row := range jsonResponse.Rows {
+		if row.ID != "" && len(row.Doc) > 0 {
+			var couchDoc CouchDoc
+			// TODO : manage attachement
+			couchDoc.JSONValue = row.Doc
+			ret[row.ID] = &couchDoc
+		} else {
+			logger.Debugf("Empty key or empty doc from jsonReponse.Rows : %v", row)
+		}
+	}
+	return ret, nil
+}
+
 //DeleteDoc method provides function to delete a document from the database by id
 func (dbclient *CouchDatabase) DeleteDoc(id, rev string) error {
 

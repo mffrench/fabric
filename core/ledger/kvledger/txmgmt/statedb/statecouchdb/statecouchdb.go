@@ -197,6 +197,33 @@ func (vdb *VersionedDB) GetStateMultipleKeys(namespace string, keys []string) ([
 
 }
 
+// GetKStateByMultipleKeys implements method in VersionedDB interface
+func (vdb *VersionedDB) GetKStateByMultipleKeys(namespace string, keys []string) (map[string]*statedb.VersionedValue, error) {
+	vals := map[string]*statedb.VersionedValue{}
+	if len(keys) > 0 {
+		// first : get documents revisions in one shoot (CouchDB OP)
+		compositeKeysDocMap, err := vdb.db.ReadKeysIndex(keys)
+		if err != nil {
+			logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
+			return nil, err
+		}
+
+		// second : build result
+		for cKey, couchDoc := range compositeKeysDocMap {
+			_, key := splitCompositeKey([]byte(cKey))
+			if couchDoc == nil {
+				vals[key] = nil
+			} else if len(couchDoc.JSONValue) == 0 {
+				vals[key] = nil
+			} else {
+				returnValue, returnVersion := removeDataWrapper(couchDoc.JSONValue, couchDoc.Attachments)
+				vals[key] = &statedb.VersionedValue{Value: returnValue, Version: &returnVersion}
+			}
+		}
+	}
+	return vals, nil
+}
+
 // GetStateRangeScanIterator implements method in VersionedDB interface
 // startKey is inclusive
 // endKey is exclusive

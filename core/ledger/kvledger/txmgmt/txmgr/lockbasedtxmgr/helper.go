@@ -64,6 +64,23 @@ func (h *queryHelper) getStateMultipleKeys(namespace string, keys []string) ([][
 	return values, nil
 }
 
+func (h *queryHelper) getKStateByMultipleKeys(namespace string, keys []string) (map[string][]byte, error) {
+	h.checkDone()
+	versionedValues, err := h.txmgr.db.GetKStateByMultipleKeys(namespace, keys)
+	if err != nil {
+		return nil, nil
+	}
+	values := map[string][]byte{}
+	for key, versionedValue := range versionedValues {
+		val, ver := decomposeVersionedValue(versionedValue)
+		if h.rwsetBuilder != nil {
+			h.rwsetBuilder.AddToReadSet(namespace, key, ver)
+		}
+		values[key] = val
+	}
+	return values, nil
+}
+
 func (h *queryHelper) getStateRangeScanIterator(namespace string, startKey string, endKey string) (commonledger.ResultsIterator, error) {
 	h.checkDone()
 	itr, err := newResultsItr(namespace, startKey, endKey, h.txmgr.db, h.rwsetBuilder,

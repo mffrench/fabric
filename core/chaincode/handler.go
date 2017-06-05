@@ -39,6 +39,7 @@ import (
 	"github.com/looplab/fsm"
 	logging "github.com/op/go-logging"
 	"golang.org/x/net/context"
+	"encoding/json"
 )
 
 const (
@@ -418,6 +419,7 @@ func newChaincodeSupportHandler(chaincodeSupport *ChaincodeSupport, peerChatStre
 			{Name: pb.ChaincodeMessage_INVOKE_CHAINCODE.String(), Src: []string{readystate}, Dst: readystate},
 			{Name: pb.ChaincodeMessage_COMPLETED.String(), Src: []string{readystate}, Dst: readystate},
 			{Name: pb.ChaincodeMessage_GET_STATE.String(), Src: []string{readystate}, Dst: readystate},
+			{Name: pb.ChaincodeMessage_GET_K_STATE_BY_MULTIPLE_KEYS.String(), Src: []string{readystate}, Dst: readystate},
 			{Name: pb.ChaincodeMessage_GET_STATE_BY_RANGE.String(), Src: []string{readystate}, Dst: readystate},
 			{Name: pb.ChaincodeMessage_GET_QUERY_RESULT.String(), Src: []string{readystate}, Dst: readystate},
 			{Name: pb.ChaincodeMessage_GET_HISTORY_FOR_KEY.String(), Src: []string{readystate}, Dst: readystate},
@@ -429,20 +431,21 @@ func newChaincodeSupportHandler(chaincodeSupport *ChaincodeSupport, peerChatStre
 			{Name: pb.ChaincodeMessage_TRANSACTION.String(), Src: []string{readystate}, Dst: readystate},
 		},
 		fsm.Callbacks{
-			"before_" + pb.ChaincodeMessage_REGISTER.String():           func(e *fsm.Event) { v.beforeRegisterEvent(e, v.FSM.Current()) },
-			"before_" + pb.ChaincodeMessage_COMPLETED.String():          func(e *fsm.Event) { v.beforeCompletedEvent(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_GET_STATE.String():           func(e *fsm.Event) { v.afterGetState(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_GET_STATE_BY_RANGE.String():  func(e *fsm.Event) { v.afterGetStateByRange(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_GET_QUERY_RESULT.String():    func(e *fsm.Event) { v.afterGetQueryResult(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_GET_HISTORY_FOR_KEY.String(): func(e *fsm.Event) { v.afterGetHistoryForKey(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_QUERY_STATE_NEXT.String():    func(e *fsm.Event) { v.afterQueryStateNext(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_QUERY_STATE_CLOSE.String():   func(e *fsm.Event) { v.afterQueryStateClose(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_PUT_STATE.String():           func(e *fsm.Event) { v.enterBusyState(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_DEL_STATE.String():           func(e *fsm.Event) { v.enterBusyState(e, v.FSM.Current()) },
-			"after_" + pb.ChaincodeMessage_INVOKE_CHAINCODE.String():    func(e *fsm.Event) { v.enterBusyState(e, v.FSM.Current()) },
-			"enter_" + establishedstate:                                 func(e *fsm.Event) { v.enterEstablishedState(e, v.FSM.Current()) },
-			"enter_" + readystate:                                       func(e *fsm.Event) { v.enterReadyState(e, v.FSM.Current()) },
-			"enter_" + endstate:                                         func(e *fsm.Event) { v.enterEndState(e, v.FSM.Current()) },
+			"before_" + pb.ChaincodeMessage_REGISTER.String():                    func(e *fsm.Event) { v.beforeRegisterEvent(e, v.FSM.Current()) },
+			"before_" + pb.ChaincodeMessage_COMPLETED.String():                   func(e *fsm.Event) { v.beforeCompletedEvent(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_GET_STATE.String():                    func(e *fsm.Event) { v.afterGetState(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_GET_K_STATE_BY_MULTIPLE_KEYS.String(): func(e *fsm.Event) { v.afterGetKStateByMultipleKeys(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_GET_STATE_BY_RANGE.String():           func(e *fsm.Event) { v.afterGetStateByRange(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_GET_QUERY_RESULT.String():             func(e *fsm.Event) { v.afterGetQueryResult(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_GET_HISTORY_FOR_KEY.String():          func(e *fsm.Event) { v.afterGetHistoryForKey(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_QUERY_STATE_NEXT.String():             func(e *fsm.Event) { v.afterQueryStateNext(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_QUERY_STATE_CLOSE.String():            func(e *fsm.Event) { v.afterQueryStateClose(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_PUT_STATE.String():                    func(e *fsm.Event) { v.enterBusyState(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_DEL_STATE.String():                    func(e *fsm.Event) { v.enterBusyState(e, v.FSM.Current()) },
+			"after_" + pb.ChaincodeMessage_INVOKE_CHAINCODE.String():             func(e *fsm.Event) { v.enterBusyState(e, v.FSM.Current()) },
+			"enter_" + establishedstate:                                          func(e *fsm.Event) { v.enterEstablishedState(e, v.FSM.Current()) },
+			"enter_" + readystate:                                                func(e *fsm.Event) { v.enterReadyState(e, v.FSM.Current()) },
+			"enter_" + endstate:                                                  func(e *fsm.Event) { v.enterEndState(e, v.FSM.Current()) },
 		},
 	)
 
@@ -659,6 +662,95 @@ func (handler *Handler) handleGetState(msg *pb.ChaincodeMessage) {
 
 	}()
 }
+
+// afterGetKStateByMultipleKeys handles a GET_KSTATE_BY_MULTIPLE_KEYS request from the chaincode.
+func (handler *Handler) afterGetKStateByMultipleKeys(e *fsm.Event, state string) {
+	msg, ok := e.Args[0].(*pb.ChaincodeMessage)
+	if !ok {
+		e.Cancel(fmt.Errorf("Received unexpected message type"))
+		return
+	}
+	chaincodeLogger.Debugf("[%s]Received %s, invoking get state from ledger", shorttxid(msg.Txid), pb.ChaincodeMessage_GET_STATE)
+
+	// Query ledger for state
+	handler.handleGetKStateByMultipleKeys(msg)
+}
+
+// Handles query to ledger to get state multiple keys
+func (handler *Handler) handleGetKStateByMultipleKeys(msg *pb.ChaincodeMessage) {
+	// The defer followed by triggering a go routine dance is needed to ensure that the previous state transition
+	// is completed before the next one is triggered. The previous state transition is deemed complete only when
+	// the afterGetStateMultipleKeys function is exited. Interesting bug fix!!
+	go func() {
+		// Check if this is the unique state request from this chaincode txid
+		uniqueReq := handler.createTXIDEntry(msg.Txid)
+		if !uniqueReq {
+			// Drop this request
+			chaincodeLogger.Error("Another state request pending for this Txid. Cannot process.")
+			return
+		}
+
+		var serialSendMsg *pb.ChaincodeMessage
+		var txContext *transactionContext
+		txContext, serialSendMsg = handler.isValidTxSim(msg.Txid,
+			"[%s]No ledger context for GetState. Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_ERROR)
+
+		defer func() {
+			handler.deleteTXIDEntry(msg.Txid)
+			if chaincodeLogger.IsEnabledFor(logging.DEBUG) {
+				chaincodeLogger.Debugf("[%s]handleGetState serial send %s",
+					shorttxid(serialSendMsg.Txid), serialSendMsg.Type)
+			}
+			handler.serialSendAsync(serialSendMsg, nil)
+		}()
+
+		if txContext == nil {
+			return
+		}
+
+		keys := []string{}
+		err := json.Unmarshal(msg.Payload, &keys)
+		if err != nil {
+			payload := []byte(err.Error())
+			chaincodeLogger.Errorf("[%s]Failed to build keys list (%s). Sending %s",
+				shorttxid(msg.Txid), err, pb.ChaincodeMessage_ERROR)
+			serialSendMsg = &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_ERROR, Payload: payload, Txid: msg.Txid}
+		}
+		chaincodeID := handler.getCCRootName()
+		if chaincodeLogger.IsEnabledFor(logging.DEBUG) {
+			chaincodeLogger.Debugf("[%s] getting state for chaincode %s, keys %s, channel %s",
+				shorttxid(msg.Txid), chaincodeID, keys, txContext.chainID)
+		}
+
+		var res map[string][]byte
+		res, err = txContext.txsimulator.GetKStateByMultipleKeys(chaincodeID, keys)
+
+		if err != nil {
+			// Send error msg back to chaincode. GetKStateByMultipleKeys will not trigger event
+			payload := []byte(err.Error())
+			chaincodeLogger.Errorf("[%s]Failed to get chaincode state(%s). Sending %s",
+				shorttxid(msg.Txid), err, pb.ChaincodeMessage_ERROR)
+
+			serialSendMsg = &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_ERROR, Payload: payload, Txid: msg.Txid}
+		} else {
+			// Send response msg back to chaincode. GetKStateByMultipleKeys will not trigger event
+			if chaincodeLogger.IsEnabledFor(logging.DEBUG) {
+				chaincodeLogger.Debugf("[%s]Got state. Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_RESPONSE)
+			}
+			resp := &pb.GetKStateByMultipleKeysResponse{KeyStates: res}
+			payloadBytes, err := proto.Marshal(resp)
+			if err != nil {
+				payload := []byte(err.Error())
+				chaincodeLogger.Errorf("[%s]Failed to build response (%s). Sending %s",
+					shorttxid(msg.Txid), err, pb.ChaincodeMessage_ERROR)
+				serialSendMsg = &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_ERROR, Payload: payload, Txid: msg.Txid}
+			}
+			serialSendMsg = &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Payload: payloadBytes, Txid: msg.Txid}
+		}
+	}()
+}
+
+
 
 // afterGetStateByRange handles a GET_STATE_BY_RANGE request from the chaincode.
 func (handler *Handler) afterGetStateByRange(e *fsm.Event, state string) {

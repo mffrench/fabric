@@ -366,6 +366,14 @@ func (stub *ChaincodeStub) GetState(key string) ([]byte, error) {
 	return stub.handler.handleGetState(key, stub.TxID)
 }
 
+// GetKStateByMultipleKeys function can be invoked by a chaincode to query of
+// an array of keys in the state.
+// A map<key,value> will be returned through the GetKStateByMultipleKeysResponse.
+func (stub *ChaincodeStub) GetKStateByMultipleKeys(keys []string) (*pb.GetKStateByMultipleKeysResponse, error) {
+	return stub.handler.handleGetKStateByMultipleKeys(keys, stub.TxID)
+}
+
+
 // PutState writes the specified `value` and `key` into the ledger.
 // Simple keys must not be an empty string and must not start with null
 // character (0x00), in order to avoid range query collisions with

@@ -208,6 +208,11 @@ func (stub *MockStub) DelState(key string) error {
 	return nil
 }
 
+// TODO: implement mock
+func (stub *MockStub) GetKStateByMultipleKeys(keys []string) (*pb.GetKStateByMultipleKeysResponse, error) {
+	return nil, nil
+}
+
 func (stub *MockStub) GetStateByRange(startKey, endKey string) (StateQueryIteratorInterface, error) {
 	if err := validateSimpleKeys(startKey, endKey); err != nil {
 		return nil, err

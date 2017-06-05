@@ -107,6 +107,20 @@ func (vdb *versionedDB) GetStateMultipleKeys(namespace string, keys []string) ([
 	return vals, nil
 }
 
+
+// GetKStateByMultipleKeys implements method in VersionedDB interface
+func (vdb *versionedDB) GetKStateByMultipleKeys(namespace string, keys []string) (map[string]*statedb.VersionedValue, error) {
+	vals := map[string]*statedb.VersionedValue{}
+	for _, key := range keys {
+		val, err := vdb.GetState(namespace, key)
+		if err != nil {
+			return nil, err
+		}
+		vals[key] = val
+	}
+	return vals, nil
+}
+
 // GetStateRangeScanIterator implements method in VersionedDB interface
 // startKey is inclusive
 // endKey is exclusive

@@ -44,6 +44,11 @@ func (q *lockBasedQueryExecutor) GetStateMultipleKeys(namespace string, keys []s
 	return q.helper.getStateMultipleKeys(namespace, keys)
 }
 
+// GetKStateByMultipleKeys implements method in interface `ledger.QueryExecutor`
+func (q *lockBasedQueryExecutor) GetKStateByMultipleKeys(namespace string, keys []string) (map[string][]byte, error) {
+	return q.helper.getKStateByMultipleKeys(namespace, keys)
+}
+
 // GetStateRangeScanIterator implements method in interface `ledger.QueryExecutor`
 // startKey is included in the results and endKey is excluded. An empty startKey refers to the first available key
 // and an empty endKey refers to the last available key. For scanning all the keys, both the startKey and the endKey

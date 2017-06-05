@@ -24,6 +24,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/looplab/fsm"
+	"encoding/json"
 )
 
 // PeerChaincodeStream interface for stream between Peer and chaincode instance.
@@ -505,6 +506,57 @@ func (handler *Handler) handleDelState(key string, txid string) error {
 	chaincodeLogger.Errorf("[%s]Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return errors.New("Incorrect chaincode message received")
 }
+
+// handleGetKStateByMultipleKeys communicates with the validator to fetch the requested state information from the ledger.
+func (handler *Handler) handleGetKStateByMultipleKeys(keys []string, txid string) (*pb.GetKStateByMultipleKeysResponse, error) {
+	// Create the channel on which to communicate the response from validating peer
+	respChan, uniqueReqErr := handler.createChannel(txid)
+	if uniqueReqErr != nil {
+		chaincodeLogger.Debug("Another state request pending for this Txid. Cannot process.")
+		return nil, uniqueReqErr
+	}
+
+	defer handler.deleteChannel(txid)
+
+	// Send GET_STATE message to validator chaincode support
+
+	payload, err := json.Marshal(keys)
+	if err != nil {
+		chaincodeLogger.Errorf("[%s]error when marshalling keys array %s", shorttxid(txid), err)
+		return nil, errors.New("could not send msg")
+	}
+	msg := &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_GET_K_STATE_BY_MULTIPLE_KEYS, Payload: payload, Txid: txid}
+	chaincodeLogger.Debugf("[%s]Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_GET_STATE)
+	responseMsg, err := handler.sendReceive(msg, respChan)
+	if err != nil {
+		chaincodeLogger.Errorf("[%s]error sending GET_STATE %s", shorttxid(txid), err)
+		return nil, errors.New("could not send msg")
+	}
+
+	if responseMsg.Type.String() == pb.ChaincodeMessage_RESPONSE.String() {
+		// Success response
+		chaincodeLogger.Debugf("[%s]GetStateMultipleKeys received payload %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_RESPONSE)
+
+		getStateMultipleKeysResponse := &pb.GetKStateByMultipleKeysResponse{}
+		unmarshalErr := proto.Unmarshal(responseMsg.Payload, getStateMultipleKeysResponse)
+		if unmarshalErr != nil {
+			chaincodeLogger.Errorf("[%s]unmarshall error", shorttxid(responseMsg.Txid))
+			return nil, errors.New("Error unmarshalling GetStateByRangeResponse.")
+		}
+
+		return getStateMultipleKeysResponse, nil
+	}
+	if responseMsg.Type.String() == pb.ChaincodeMessage_ERROR.String() {
+		// Error response
+		chaincodeLogger.Errorf("[%s]GetStateMultipleKeys received error %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_ERROR)
+		return nil, errors.New(string(responseMsg.Payload[:]))
+	}
+
+	// Incorrect chaincode message received
+	chaincodeLogger.Errorf("[%s]Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	return nil, errors.New("Incorrect chaincode message received")
+}
+
 
 func (handler *Handler) handleGetStateByRange(startKey, endKey string, txid string) (*pb.QueryResponse, error) {
 	// Create the channel on which to communicate the response from validating peer
