@@ -93,6 +93,7 @@ func (id *identity) GetOrganizationalUnits() []*OUIdentifier {
 	}
 
 	res := []*OUIdentifier{}
+	mspIdentityLogger.Debugf("id.cert.subject: [%v]", id.cert.Subject)
 	for _, unit := range id.cert.Subject.OrganizationalUnit {
 		res = append(res, &OUIdentifier{
 			OrganizationalUnitIdentifier: unit,

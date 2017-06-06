@@ -92,6 +92,10 @@ func (cas *CASupport) GetDeliverServiceCredentials() credentials.TransportCreden
 	var certPool = x509.NewCertPool()
 	// loop through the orderer CAs
 	_, roots := cas.GetServerRootCAs()
+	if len(roots) == 0 {
+		commLogger.Warningf("Not RootCAs for DeliverService ?! Check your Orderers Organizations !")
+		commLogger.Warningf("Not RootCAs for DeliverService ?! This willl certainly result to SSL/TLS timeoout/EOF errors !")
+	}
 	for _, root := range roots {
 		block, _ := pem.Decode(root)
 		if block != nil {
@@ -118,6 +122,10 @@ func (cas *CASupport) GetPeerCredentials() credentials.TransportCredentials {
 	var certPool = x509.NewCertPool()
 	// loop through the orderer CAs
 	roots, _ := cas.GetServerRootCAs()
+	if len(roots) == 0 {
+		commLogger.Warningf("Not RootCAs for Peer ?! Check your Applications Organizations !")
+		commLogger.Warningf("Not RootCAs for Peer ?! This willl certainly result to SSL/TLS timeoout/EOF errors !")
+	}
 	for _, root := range roots {
 		block, _ := pem.Decode(root)
 		if block != nil {
@@ -131,6 +139,7 @@ func (cas *CASupport) GetPeerCredentials() credentials.TransportCredentials {
 			commLogger.Warning("Failed to add root cert to credentials")
 		}
 	}
+
 	tlsConfig.RootCAs = certPool
 	creds = credentials.NewTLS(tlsConfig)
 	return creds
@@ -187,6 +196,8 @@ func NewClientConnectionWithAddress(peerAddress string, block bool, tslEnabled b
 	}
 	conn, err := grpc.Dial(peerAddress, opts...)
 	if err != nil {
+		commLogger.Errorf("Failed to dial remote : %v", err)
+		commLogger.Errorf("(GRPC dialOpts : %v)", opts)
 		return nil, err
 	}
 	return conn, err
