@@ -39,6 +39,7 @@ import (
 
 	"github.com/hyperledger/fabric/common/flogging"
 	logging "github.com/op/go-logging"
+	"errors"
 )
 
 var logger = flogging.MustGetLogger("couchdb")
@@ -205,6 +206,27 @@ type BatchUpdateResponse struct {
 type Base64Attachment struct {
 	ContentType    string `json:"content_type"`
 	AttachmentData string `json:"data"`
+}
+
+type DocBulkUnit struct {
+	Id          string           `json:"_id"`
+	Rev         string           `json:"_rev,omitempty"`
+	Delete      bool             `json:"_delete,omitempty"`
+	Version     string           `json:"version"`
+	Chaincodeid string           `json:"chainecodid"`
+	Data        *json.RawMessage `json:"data"`
+}
+
+type DocsBulk struct {
+	Docs []*DocBulkUnit `json:"docs"`
+}
+
+type DocsBulkResp struct {
+	IsOK     bool   `json:"ok"`
+	ID       string `json:"id"`
+	Revision string `json:"rev,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // closeResponseBody discards the body and then closes it to enable returning it to
@@ -880,7 +902,7 @@ func (dbclient *CouchDatabase) ReadDocRange(startKey, endKey string, limit, skip
 
 }
 
-func (dbclient *CouchDatabase) ReadKeysIndex(keys []string) (map[string]*CouchDoc, error) {
+func (dbclient *CouchDatabase) ReadMultipleDocs(keys []string) (map[string]*CouchDoc, error) {
 	readURL, err := url.Parse(dbclient.CouchInstance.conf.URL)
 	if err != nil {
 		logger.Errorf("URL parse error: %s", err.Error())
@@ -921,14 +943,7 @@ func (dbclient *CouchDatabase) ReadKeysIndex(keys []string) (map[string]*CouchDo
 		return nil, err2
 	}
 
-	ret := map[string]*CouchDoc{}
-	for _, key := range keys {
-		if key != "" {
-			ret[key] = nil
-		} else {
-			logger.Warningf("Empty key from docsAllKeys.Keys ?!")
-		}
-	}
+	ret := make(map[string]*CouchDoc, len(jsonResponse.Rows))
 	for _, row := range jsonResponse.Rows {
 		if row.ID != "" && len(row.Doc) > 0 {
 			var couchDoc CouchDoc
@@ -1070,6 +1085,114 @@ func (dbclient *CouchDatabase) QueryDocuments(query string) (*[]QueryResult, err
 
 	return &results, nil
 
+}
+
+//BulkDocs method provides a function to save bulk of documents
+func (dbclient *CouchDatabase) BulkDocs(docsBulk DocsBulk) (map[string]string, error) {
+	logger.Debugf("Entering BulkDocs()")
+	// TODO : manage attachement
+	saveURL, err := url.Parse(dbclient.CouchInstance.conf.URL)
+	if err != nil {
+		logger.Errorf("URL parse error: %s", err.Error())
+		return nil, err
+	}
+	saveURL.Path = dbclient.DBName + "/_bulk_docs"
+	saveURL = &url.URL{Opaque: saveURL.String()}
+
+	//Set up a buffer for the data to be pushed to couchdb
+	// TODO: check CouchDB POST data limit if any and split the request in several chunk if needed
+	returnJSON, _ := json.Marshal(docsBulk)
+
+	//get the number of retries
+	maxRetries := dbclient.CouchInstance.conf.MaxRetries
+
+	resp, _, err := dbclient.CouchInstance.handleRequest(
+		http.MethodPost, saveURL.String(), returnJSON, "", "", maxRetries)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonResponse = []DocsBulkResp{}
+	err = json.Unmarshal(jsonResponseRaw, &jsonResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := map[string]string{}
+	errorsList := ""
+	for _, row := range jsonResponse {
+		if row.IsOK {
+			ret[row.ID] = row.Revision
+		} else {
+			errorsList += "Error on key " + row.ID + " : " + row.Error + " - " + row.Reason + "\n"
+		}
+	}
+
+	logger.Debugf("Exiting BulkDocs()")
+	if errorsList == "" {
+		return ret, nil
+	} else {
+		return ret, errors.New("Error(s) raised when bulking. \n" + errorsList)
+	}
+}
+
+//ReadRevsKeys method provides a function to get documents revision mapped with document id
+func (dbclient *CouchDatabase) ReadRevsKeys(keys []string) (map[string]string, error) {
+	readURL, err := url.Parse(dbclient.CouchInstance.conf.URL)
+	if err != nil {
+		logger.Errorf("URL parse error: %s", err.Error())
+		return nil, err
+	}
+	readURL.Path = dbclient.DBName + "/_all_docs"
+	readURL = &url.URL{Opaque: readURL.String()}
+
+	//Set up a buffer for the data to be pushed to couchdb
+	// TODO: check CouchDB POST data limit if any and split the request in several chunk if needed
+	keymap := make(map[string]interface{})
+
+	keymap["keys"] = keys
+
+	jsonKeys, err := json.Marshal(keymap)
+	if err != nil {
+		return nil, err
+	}
+
+	//get the number of retries
+	maxRetries := dbclient.CouchInstance.conf.MaxRetries
+
+	resp, _, err := dbclient.CouchInstance.handleRequest(
+		http.MethodPost, readURL.String(), jsonKeys, "", "", maxRetries)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	jsonResponseRaw, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsonResponse = &RangeQueryResponse{}
+	err2 := json.Unmarshal(jsonResponseRaw, &jsonResponse)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	ret := map[string]string{}
+	for _, row := range jsonResponse.Rows {
+		value := row.Value
+		if value.Rev != "" {
+			ret[row.ID] = value.Rev
+		}
+	}
+
+	return ret, nil
 }
 
 //BatchRetrieveIDRevision - batch method to retrieve IDs and revisions

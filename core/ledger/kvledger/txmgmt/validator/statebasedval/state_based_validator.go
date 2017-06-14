@@ -180,8 +180,14 @@ func (v *Validator) validateTx(txRWSet *rwsetutil.TxRwSet, updates *statedb.Upda
 }
 
 func (v *Validator) validateReadSet(ns string, kvReads []*kvrwset.KVRead, updates *statedb.UpdateBatch) (bool, error) {
-	for _, kvRead := range kvReads {
-		if valid, err := v.validateKVRead(ns, kvRead, updates); !valid || err != nil {
+	if v.db.GetVDBType() == "LevelDB" {
+		for _, kvRead := range kvReads {
+			if valid, err := v.validateKVRead(ns, kvRead, updates); !valid || err != nil {
+				return valid, err
+			}
+		}
+	} else if v.db.GetVDBType() == "CouchDB" {
+		if valid, err := v.validateMultipleKVRead(ns, kvReads, updates); !valid || err != nil {
 			return valid, err
 		}
 	}
@@ -208,6 +214,57 @@ func (v *Validator) validateKVRead(ns string, kvRead *kvrwset.KVRead, updates *s
 		logger.Debugf("Version mismatch for key [%s:%s]. Committed version = [%s], Version in readSet [%s]",
 			ns, kvRead.Key, committedVersion, kvRead.Version)
 		return false, nil
+	}
+	return true, nil
+}
+
+// validateMultipleKVRead performs mvcc check for a key array read during transaction simulation.
+// i.e., for any key value in the array, it checks whether a key/version combination is already updated
+// in the statedb (by an already committed block) or in the updates (by a preceding valid transaction
+// in the current block)
+func (v *Validator) validateMultipleKVRead(ns string, kvReads []*kvrwset.KVRead, updates *statedb.UpdateBatch) (bool, error) {
+	if len(kvReads) > 1 {
+		keys := []string{}
+		keysVersion := map[string]*version.Height{}
+		for _, kvRead := range kvReads {
+			if updates.Exists(ns, kvRead.Key) {
+				return false, nil
+			}
+			keys = append(keys, kvRead.Key)
+			keysVersion[kvRead.Key] = rwsetutil.NewVersion(kvRead.Version)
+		}
+
+		versionedKValues, err := v.db.GetKStateByMultipleKeys(ns, keys)
+		if err != nil {
+			logger.Errorf("error raised by GetKStateMultipleKeys: " + err.Error())
+			return false, err
+		}
+
+		for key, versionedValue := range versionedKValues {
+			if updates.Exists(ns, key) {
+				logger.Debugf("updates exists " + key)
+				return false, nil
+			}
+			var committedVersion *version.Height
+			if versionedValue != nil {
+				committedVersion = versionedValue.Version
+			}
+			if val, ok := keysVersion[key]; ok && val != nil {
+				if !version.AreSame(committedVersion, val) {
+					logger.Debugf("Version mismatch for key [%s:%s]. Committed version = [%s], Version in readSet[%s]",
+						ns, key, committedVersion, val)
+
+					return false, nil
+				}
+			} else {
+				logger.Debugf("No entry on keysVersion for " + key + " ...")
+				// marshK, _ := json.Marshal(keysVersion)
+				// logger.Debugf("Current keysVersion : " + string(marshK))
+			}
+		}
+		return true, nil
+	} else if len(kvReads) == 1 {
+		return v.validateKVRead(ns, kvReads[0], updates)
 	}
 	return true, nil
 }

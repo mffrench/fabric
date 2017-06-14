@@ -61,17 +61,23 @@ func (provider *VersionedDBProvider) Close() {
 type versionedDB struct {
 	db     *leveldbhelper.DBHandle
 	dbName string
+	dbType string
 }
 
 // newVersionedDB constructs an instance of VersionedDB
 func newVersionedDB(db *leveldbhelper.DBHandle, dbName string) *versionedDB {
-	return &versionedDB{db, dbName}
+	return &versionedDB{db, dbName, "LevelDB"}
 }
 
 // Open implements method in VersionedDB interface
 func (vdb *versionedDB) Open() error {
 	// do nothing because shared db is used
 	return nil
+}
+
+// Get VersionedDB type
+func (vdb *versionedDB) GetVDBType() string {
+	return vdb.dbType
 }
 
 // Close implements method in VersionedDB interface

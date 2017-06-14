@@ -90,6 +90,7 @@ func (provider *VersionedDBProvider) Close() {
 type VersionedDB struct {
 	db     *couchdb.CouchDatabase
 	dbName string
+	dbType string
 }
 
 // newVersionedDB constructs an instance of VersionedDB
@@ -99,13 +100,18 @@ func newVersionedDB(couchInstance *couchdb.CouchInstance, dbName string) (*Versi
 	if err != nil {
 		return nil, err
 	}
-	return &VersionedDB{db, dbName}, nil
+	return &VersionedDB{db, dbName, "CouchDB"}, nil
 }
 
 // Open implements method in VersionedDB interface
 func (vdb *VersionedDB) Open() error {
 	// no need to open db since a shared couch instance is used
 	return nil
+}
+
+// Get VersionedDB type
+func (vdb *VersionedDB) GetVDBType() string {
+	return vdb.dbType
 }
 
 // Close implements method in VersionedDB interface
@@ -184,31 +190,49 @@ func removeDataWrapper(wrappedValue []byte, attachments []*couchdb.Attachment) (
 
 // GetStateMultipleKeys implements method in VersionedDB interface
 func (vdb *VersionedDB) GetStateMultipleKeys(namespace string, keys []string) ([]*statedb.VersionedValue, error) {
-
 	vals := make([]*statedb.VersionedValue, len(keys))
-	for i, key := range keys {
-		val, err := vdb.GetState(namespace, key)
-		if err != nil {
-			return nil, err
-		}
-		vals[i] = val
+	// first : build array of composite keys
+	cKeys := make([]string, len(keys))
+	for _, key := range keys {
+		cKeys = append(cKeys, string(constructCompositeKey(namespace, key)))
 	}
-	return vals, nil
 
+	// second : get documents revisions in one shoot (CouchDB OP)
+	compositeKeysDocMap, err := vdb.db.ReadMultipleDocs(cKeys)
+	if err != nil {
+		logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
+		return nil, err
+	}
+
+	// third : build result
+	for _, couchDoc := range compositeKeysDocMap {
+		if couchDoc != nil && len(couchDoc.JSONValue) > 0 {
+			returnValue, returnVersion := removeDataWrapper(couchDoc.JSONValue, couchDoc.Attachments)
+			vals = append(vals, &statedb.VersionedValue{Value: returnValue, Version: &returnVersion})
+		}
+	}
+
+	return vals, nil
 }
 
 // GetKStateByMultipleKeys implements method in VersionedDB interface
 func (vdb *VersionedDB) GetKStateByMultipleKeys(namespace string, keys []string) (map[string]*statedb.VersionedValue, error) {
 	vals := map[string]*statedb.VersionedValue{}
 	if len(keys) > 0 {
-		// first : get documents revisions in one shoot (CouchDB OP)
-		compositeKeysDocMap, err := vdb.db.ReadKeysIndex(keys)
+		// first : build array of composite keys
+		cKeys := make([]string, len(keys))
+		for _, key := range keys {
+			cKeys = append(cKeys, string(constructCompositeKey(namespace, key)))
+		}
+
+		// second : get documents revisions in one shoot (CouchDB OP)
+		compositeKeysDocMap, err := vdb.db.ReadMultipleDocs(cKeys)
 		if err != nil {
 			logger.Errorf("Error during ReadDocsKeys(): %s\n", err.Error())
 			return nil, err
 		}
 
-		// second : build result
+		// third : build result
 		for cKey, couchDoc := range compositeKeysDocMap {
 			_, key := splitCompositeKey([]byte(cKey))
 			if couchDoc == nil {
@@ -270,7 +294,31 @@ func (vdb *VersionedDB) ExecuteQuery(namespace, query string) (statedb.ResultsIt
 
 // ApplyUpdates implements method in VersionedDB interface
 func (vdb *VersionedDB) ApplyUpdates(batch *statedb.UpdateBatch, height *version.Height) error {
+	if namespaces := batch.GetUpdatedNamespaces(); len(namespaces) <= 1 {
+		if len(namespaces) == 1 {
+			if updates := batch.GetUpdates(namespaces[0]); len(updates) > 1 {
+				return applyUpdatesBulk(vdb, batch, height)
+			} else {
+				return applyUpdatesUnit(vdb, batch, height)
+			}
+		} else {
+			return applyUpdatesUnit(vdb, batch, height)
+		}
+	} else {
+		if len(namespaces) == 1 {
+			if updates := batch.GetUpdates(namespaces[0]); len(updates) > 1 {
+				return applyUpdatesBulk(vdb, batch, height)
+			} else {
+				return applyUpdatesUnit(vdb, batch, height)
+			}
+		} else {
+			return applyUpdatesBulk(vdb, batch, height)
+		}
+	}
+}
 
+// 1.0.0-alpha implementation for ApplyUpdates
+func applyUpdatesUnit(vdb *VersionedDB, batch *statedb.UpdateBatch, height *version.Height) error {
 	namespaces := batch.GetUpdatedNamespaces()
 	for _, ns := range namespaces {
 		updates := batch.GetUpdates(ns)
@@ -292,14 +340,12 @@ func (vdb *VersionedDB) ApplyUpdates(batch *statedb.UpdateBatch, height *version
 					// Handle it as json
 					couchDoc.JSONValue = addVersionAndChainCodeID(vv.Value, ns, vv.Version)
 				} else { // if the data is not JSON, save as binary attachment in Couch
-
+					//Create an attachment structure and load the bytes
 					attachment := &couchdb.Attachment{}
 					attachment.AttachmentBytes = vv.Value
 					attachment.ContentType = "application/octet-stream"
 					attachment.Name = binaryWrapper
-					attachments := append([]*couchdb.Attachment{}, attachment)
-
-					couchDoc.Attachments = attachments
+					couchDoc.Attachments = append(couchDoc.Attachments, attachment)
 					couchDoc.JSONValue = addVersionAndChainCodeID(nil, ns, vv.Version)
 				}
 
@@ -320,6 +366,70 @@ func (vdb *VersionedDB) ApplyUpdates(batch *statedb.UpdateBatch, height *version
 	err := vdb.recordSavepoint(height)
 	if err != nil {
 		logger.Errorf("Error during recordSavepoint: %s\n", err.Error())
+		return err
+	}
+	return nil
+}
+
+// ApplyUpdates with CouchDB Bulk to avoid CouchDB DoS and improve perf
+func applyUpdatesBulk(vdb *VersionedDB, batch *statedb.UpdateBatch, height *version.Height) error {
+	bulkDocs := couchdb.DocsBulk{}
+	namespaces := batch.GetUpdatedNamespaces()
+
+	// first : build array of composite keys
+	cKeys := []string{}
+	for _, ns := range namespaces {
+		updates := batch.GetUpdates(ns)
+		for k := range updates {
+			cKeys = append(cKeys, string(constructCompositeKey(ns, k)))
+		}
+	}
+
+	// second : get documents revisions in one shoot (CouchDB OP)
+	compositeKeysRevMap, err := vdb.db.ReadRevsKeys(cKeys)
+	logger.Debugf("compositeKeysRevMap: %+v\n", compositeKeysRevMap)
+	if err != nil {
+		logger.Errorf("Error during ReadDocsRev(): %s\n", err.Error())
+		return err
+	}
+
+	// third : build bulkDocs
+	for _, ns := range namespaces {
+		updates := batch.GetUpdates(ns)
+		for k, vv := range updates {
+			compositeKey := constructCompositeKey(ns, k)
+			if vv.Value == nil {
+				docUnit := &couchdb.DocBulkUnit{}
+				docUnit.Id = string(compositeKey)
+				docUnit.Delete = true
+				docUnit.Rev = compositeKeysRevMap[docUnit.Id]
+				bulkDocs.Docs = append(bulkDocs.Docs, docUnit)
+			} else {
+				docUnit := &couchdb.DocBulkUnit{}
+				docUnit.Id = string(compositeKey)
+				if val, ok := compositeKeysRevMap[docUnit.Id]; ok {
+					docUnit.Rev = val
+				}
+				docUnit.Version = fmt.Sprintf("%v:%v", vv.Version.BlockNum, vv.Version.TxNum)
+				docUnit.Chaincodeid = ns
+				docUnit.Data = (*json.RawMessage)(&vv.Value)
+				logger.Debugf("new docUnit in bulk: %+v\n", docUnit)
+				bulkDocs.Docs = append(bulkDocs.Docs, docUnit)
+			}
+		}
+	}
+
+	// fourth : apply operations on bulkDocs (CouchDB OP)
+	_, err = vdb.db.BulkDocs(bulkDocs)
+	if err != nil {
+		logger.Errorf("Error during Commit(): %s\n", err)
+		return err
+	}
+
+	// finally : record a savepoint at a given height (CouchDB OP)
+	err = vdb.recordSavepoint(height)
+	if err != nil {
+		logger.Errorf("Error during recordSavepoint: %s\n", err)
 		return err
 	}
 

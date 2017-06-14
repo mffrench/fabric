@@ -57,6 +57,8 @@ type VersionedDB interface {
 	Open() error
 	// Close closes the db
 	Close()
+	// Get VersionedDB type
+	GetVDBType() string
 }
 
 // CompositeKey encloses Namespace and Key components
