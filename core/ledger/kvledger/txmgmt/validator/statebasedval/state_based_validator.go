@@ -251,13 +251,13 @@ func (v *Validator) validateMultipleKVRead(ns string, kvReads []*kvrwset.KVRead,
 			}
 			if val, ok := keysVersion[key]; ok && val != nil {
 				if !version.AreSame(committedVersion, val) {
-					logger.Debugf("Version mismatch for key [%s:%s]. Committed version = [%s], Version in readSet[%s]",
+					logger.Warningf("Version mismatch for key [%s:%s]. Committed version = [%s], Version in readSet[%s]",
 						ns, key, committedVersion, val)
 
 					return false, nil
 				}
 			} else {
-				logger.Debugf("No entry on keysVersion for " + key + " ...")
+				logger.Warningf("No entry on keysVersion for " + key + " ...")
 				// marshK, _ := json.Marshal(keysVersion)
 				// logger.Debugf("Current keysVersion : " + string(marshK))
 			}
