@@ -18,10 +18,9 @@ package mocks
 
 import (
 	"bytes"
-
-	"fmt"
-
 	"errors"
+	"fmt"
+	"time"
 
 	mockpolicies "github.com/hyperledger/fabric/common/mocks/policies"
 	"github.com/hyperledger/fabric/common/policies"
@@ -53,14 +52,6 @@ func (m *ChannelPolicyManager) GetPolicy(id string) (policies.Policy, bool) {
 }
 
 func (m *ChannelPolicyManager) Manager(path []string) (policies.Manager, bool) {
-	panic("Not implemented")
-}
-
-func (m *ChannelPolicyManager) BasePath() string {
-	panic("Not implemented")
-}
-
-func (m *ChannelPolicyManager) PolicyNames() []string {
 	panic("Not implemented")
 }
 
@@ -100,6 +91,20 @@ func (m *DeserializersManager) GetChannelDeserializers() map[string]msp.Identity
 	return m.ChannelDeserializers
 }
 
+type IdentityDeserializerWithExpiration struct {
+	*IdentityDeserializer
+	Expiration time.Time
+}
+
+func (d *IdentityDeserializerWithExpiration) DeserializeIdentity(serializedIdentity []byte) (msp.Identity, error) {
+	id, err := d.IdentityDeserializer.DeserializeIdentity(serializedIdentity)
+	if err != nil {
+		return nil, err
+	}
+	id.(*Identity).expirationDate = d.Expiration
+	return id, nil
+}
+
 type IdentityDeserializer struct {
 	Identity []byte
 	Msg      []byte
@@ -116,7 +121,12 @@ func (d *IdentityDeserializer) DeserializeIdentity(serializedIdentity []byte) (m
 }
 
 type Identity struct {
-	Msg []byte
+	expirationDate time.Time
+	Msg            []byte
+}
+
+func (id *Identity) ExpiresAt() time.Time {
+	return id.expirationDate
 }
 
 func (id *Identity) SatisfiesPrincipal(*mspproto.MSPPrincipal) error {
@@ -148,14 +158,6 @@ func (id *Identity) Verify(msg []byte, sig []byte) error {
 	}
 
 	return errors.New("Invalid Signature")
-}
-
-func (id *Identity) VerifyOpts(msg []byte, sig []byte, opts msp.SignatureOpts) error {
-	return nil
-}
-
-func (id *Identity) VerifyAttributes(proof []byte, spec *msp.AttributeProofSpec) error {
-	return nil
 }
 
 func (id *Identity) Serialize() ([]byte, error) {

@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2017 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-                 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package gossip
@@ -28,7 +18,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/discovery"
-	"github.com/hyperledger/fabric/gossip/identity"
 	"github.com/hyperledger/fabric/gossip/util"
 	proto "github.com/hyperledger/fabric/protos/gossip"
 	"github.com/stretchr/testify/assert"
@@ -46,6 +35,10 @@ func init() {
 
 type configurableCryptoService struct {
 	m map[string]api.OrgIdentityType
+}
+
+func (c *configurableCryptoService) Expiration(peerIdentity api.PeerIdentityType) (time.Time, error) {
+	return time.Now().Add(time.Hour), nil
 }
 
 func (c *configurableCryptoService) putInOrg(port int, org string) {
@@ -119,9 +112,8 @@ func newGossipInstanceWithExternalEndpoint(portPrefix int, id int, mcs *configur
 		PublishStateInfoInterval:   time.Duration(1) * time.Second,
 		RequestStateInfoInterval:   time.Duration(1) * time.Second,
 	}
-
-	idMapper := identity.NewIdentityMapper(mcs)
-	g := NewGossipServiceWithServer(conf, mcs, mcs, idMapper, api.PeerIdentityType(conf.InternalEndpoint),
+	selfId := api.PeerIdentityType(conf.InternalEndpoint)
+	g := NewGossipServiceWithServer(conf, mcs, mcs, selfId,
 		nil)
 
 	return g
@@ -129,6 +121,7 @@ func newGossipInstanceWithExternalEndpoint(portPrefix int, id int, mcs *configur
 
 func TestMultipleOrgEndpointLeakage(t *testing.T) {
 	t.Parallel()
+	defer testWG.Done()
 	// Scenario: create 2 organizations, each with 5 peers.
 	// The first org will have an anchor peer, but the second won't.
 	// The first 2 peers of each org would have an external endpoint, the rest won't.
@@ -214,32 +207,45 @@ func TestMultipleOrgEndpointLeakage(t *testing.T) {
 	for _, peers := range orgs2Peers {
 		for _, p := range peers {
 			p.JoinChan(jcm, channel)
-			p.UpdateChannelMetadata([]byte("bla"), channel)
+			p.UpdateChannelMetadata(createMetadata(1), channel)
 		}
 	}
 
-	time.Sleep(time.Second * 10)
-
-	for _, peers := range orgs2Peers {
-		for _, p := range peers {
-			peerNetMember := p.(*gossipServiceImpl).selfNetworkMember()
-			pkiID := peerNetMember.PKIid
-			peersKnown := p.Peers()
-			assert.Equal(t, amountOfPeersShouldKnow(pkiID), len(peersKnown), "peer %v doesn't know the needed amount of peers", peerNetMember.Endpoint)
-			for _, knownPeer := range peersKnown {
-				assert.True(t, shouldAKnowB(pkiID, knownPeer.PKIid))
-				if shouldKnowInternalEndpoint(pkiID, knownPeer.PKIid) {
-					errMsg := fmt.Sprintf("peer: %v doesn't know internal endpoint of %v",
-						peerNetMember.InternalEndpoint, string(knownPeer.PKIid))
-					assert.NotZero(t, knownPeer.InternalEndpoint, errMsg)
-				} else {
-					errMsg := fmt.Sprintf("peer: %v knows internal endpoint of %v",
-						peerNetMember.InternalEndpoint, string(knownPeer.PKIid))
-					assert.Zero(t, knownPeer.InternalEndpoint, errMsg)
+	membershipCheck := func() bool {
+		for _, peers := range orgs2Peers {
+			for _, p := range peers {
+				peerNetMember := p.(*gossipServiceImpl).selfNetworkMember()
+				pkiID := peerNetMember.PKIid
+				peersKnown := p.Peers()
+				peersToKnow := amountOfPeersShouldKnow(pkiID)
+				if peersToKnow != len(peersKnown) {
+					t.Logf("peer %#v doesn't know the needed amount of peers, extected %#v, actual %#v", peerNetMember.Endpoint, peersToKnow, len(peersKnown))
+					return false
+				}
+				for _, knownPeer := range peersKnown {
+					if !shouldAKnowB(pkiID, knownPeer.PKIid) {
+						assert.Fail(t, fmt.Sprintf("peer %#v doesn't know %#v", peerNetMember.Endpoint, knownPeer.Endpoint))
+						return false
+					}
+					internalEndpointLen := len(knownPeer.InternalEndpoint)
+					if shouldKnowInternalEndpoint(pkiID, knownPeer.PKIid) {
+						if internalEndpointLen == 0 {
+							t.Logf("peer: %v doesn't know internal endpoint of %v", peerNetMember.InternalEndpoint, string(knownPeer.PKIid))
+							return false
+						}
+					} else {
+						if internalEndpointLen != 0 {
+							assert.Fail(t, fmt.Sprintf("peer: %v knows internal endpoint of %v (%#v)", peerNetMember.InternalEndpoint, string(knownPeer.PKIid), knownPeer.InternalEndpoint))
+							return false
+						}
+					}
 				}
 			}
 		}
+		return true
 	}
+
+	waitUntilOrFail(t, membershipCheck)
 
 	for _, peers := range orgs2Peers {
 		for _, p := range peers {
@@ -250,6 +256,7 @@ func TestMultipleOrgEndpointLeakage(t *testing.T) {
 
 func TestConfidentiality(t *testing.T) {
 	t.Parallel()
+	defer testWG.Done()
 	// Scenario: create 4 organizations: {A, B, C, D}, each with 3 peers.
 	// Make only the first 2 peers have an external endpoint.
 	// Also, add the peers to the following channels:
@@ -391,11 +398,11 @@ func TestConfidentiality(t *testing.T) {
 			if isOrgInChan(org, ch) {
 				for _, p := range peers {
 					p.JoinChan(joinChanMsgsByChan[ch], common.ChainID(ch))
-					p.UpdateChannelMetadata([]byte{}, common.ChainID(ch))
+					p.UpdateChannelMetadata(createMetadata(1), common.ChainID(ch))
 					go func(p Gossip) {
 						for i := 0; i < 5; i++ {
 							time.Sleep(time.Second)
-							p.UpdateChannelMetadata([]byte{}, common.ChainID(ch))
+							p.UpdateChannelMetadata(createMetadata(1), common.ChainID(ch))
 						}
 					}(p)
 				}

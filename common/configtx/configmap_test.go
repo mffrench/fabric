@@ -19,14 +19,34 @@ package configtx
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	cb "github.com/hyperledger/fabric/protos/common"
+
+	logging "github.com/op/go-logging"
+	"github.com/stretchr/testify/assert"
 )
+
+func init() {
+	logging.SetLevel(logging.DEBUG, "")
+}
 
 func TestBadKey(t *testing.T) {
 	assert.Error(t, addToMap(comparable{key: "[Label]", path: []string{}}, make(map[string]comparable)),
 		"Should have errored on key with illegal characters")
+}
+
+func TestConfigMapMultiGroup(t *testing.T) {
+	config := cb.NewConfigGroup()
+	config.Groups["0"] = cb.NewConfigGroup()
+	config.Groups["0"].Groups["1"] = cb.NewConfigGroup()
+	config.Groups["0"].Groups["1"].Groups["2.1"] = cb.NewConfigGroup()
+	config.Groups["0"].Groups["1"].Groups["2.1"].Values["Value"] = &cb.ConfigValue{}
+	config.Groups["0"].Groups["1"].Groups["2.2"] = cb.NewConfigGroup()
+	config.Groups["0"].Groups["1"].Groups["2.2"].Values["Value"] = &cb.ConfigValue{}
+
+	confMap, err := MapConfig(config, "Channel")
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"Channel", "0", "1", "2.1"}, confMap["[Values] /Channel/0/1/2.1/Value"].path)
+	assert.Equal(t, []string{"Channel", "0", "1", "2.2"}, confMap["[Values] /Channel/0/1/2.2/Value"].path)
 }
 
 func TestConfigMap(t *testing.T) {
@@ -38,7 +58,7 @@ func TestConfigMap(t *testing.T) {
 	config.Groups["0DeepGroup"].Groups["1DeepGroup"] = cb.NewConfigGroup()
 	config.Groups["0DeepGroup"].Groups["1DeepGroup"].Values["2DeepValue"] = &cb.ConfigValue{}
 
-	confMap, err := MapConfig(config)
+	confMap, err := MapConfig(config, "Channel")
 	assert.NoError(t, err, "Should not have errored building map")
 
 	assert.Len(t, confMap, 7, "There should be 7 entries in the config map")
@@ -68,11 +88,14 @@ func TestMapConfigBack(t *testing.T) {
 	config.Groups["0DeepGroup"].Groups["1DeepGroup"] = cb.NewConfigGroup()
 	config.Groups["0DeepGroup"].Groups["1DeepGroup"].Values["2DeepValue"] = &cb.ConfigValue{}
 
-	confMap, err := MapConfig(config)
+	confMap, err := MapConfig(config, "Channel")
 	assert.NoError(t, err, "Should not have errored building map")
 
-	newConfig, err := configMapToConfig(confMap)
+	newConfig, err := configMapToConfig(confMap, "Channel")
 	assert.NoError(t, err, "Should not have errored building config")
 
 	assert.Equal(t, config, newConfig, "Should have transformed config map back from confMap")
+
+	newConfig.Values["Value"] = &cb.ConfigValue{}
+	assert.NotEqual(t, config, newConfig, "Mutating the new config should not mutate the existing config")
 }

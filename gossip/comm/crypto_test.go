@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package comm
@@ -93,10 +83,7 @@ func TestCertificateExtraction(t *testing.T) {
 		Certificates:       []tls.Certificate{clientCert},
 		InsecureSkipVerify: true,
 	})
-	ac := &authCreds{tlsCreds: ta}
-	assert.Equal(t, "1.2", ac.Info().SecurityVersion)
-	assert.Equal(t, "tls", ac.Info().SecurityProtocol)
-	conn, err := grpc.Dial("localhost:5611", grpc.WithTransportCredentials(ac), grpc.WithBlock(), grpc.WithTimeout(time.Second))
+	conn, err := grpc.Dial("localhost:5611", grpc.WithTransportCredentials(ta), grpc.WithBlock(), grpc.WithTimeout(time.Second))
 	assert.NoError(t, err, "%v", err)
 
 	cl := proto.NewGossipClient(conn)

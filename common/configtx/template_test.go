@@ -20,10 +20,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hyperledger/fabric/common/config"
 	cb "github.com/hyperledger/fabric/protos/common"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,15 +75,23 @@ func TestCompositeTemplate(t *testing.T) {
 }
 
 func TestModPolicySettingTemplate(t *testing.T) {
+	existingModPolicy := "bar"
+
 	subGroup := "group"
+	subGroupExistingModPolicy := "otherGroup"
 	input := cb.NewConfigGroup()
 	input.Groups[subGroup] = cb.NewConfigGroup()
+	input.Groups[subGroupExistingModPolicy] = &cb.ConfigGroup{ModPolicy: existingModPolicy}
 
 	policyName := "policy"
 	valueName := "value"
+	policyExistingModPolicy := "otherPolicy"
+	valueExistingModPolicy := "otherValue"
 	for _, group := range []*cb.ConfigGroup{input, input.Groups[subGroup]} {
 		group.Values[valueName] = &cb.ConfigValue{}
 		group.Policies[policyName] = &cb.ConfigPolicy{}
+		group.Values[valueExistingModPolicy] = &cb.ConfigValue{ModPolicy: existingModPolicy}
+		group.Policies[policyExistingModPolicy] = &cb.ConfigPolicy{ModPolicy: existingModPolicy}
 	}
 
 	modPolicyName := "foo"
@@ -98,38 +104,12 @@ func TestModPolicySettingTemplate(t *testing.T) {
 	assert.Equal(t, modPolicyName, configUpdate.WriteSet.ModPolicy)
 	assert.Equal(t, modPolicyName, configUpdate.WriteSet.Values[valueName].ModPolicy)
 	assert.Equal(t, modPolicyName, configUpdate.WriteSet.Policies[policyName].ModPolicy)
+	assert.Equal(t, existingModPolicy, configUpdate.WriteSet.Values[valueExistingModPolicy].ModPolicy)
+	assert.Equal(t, existingModPolicy, configUpdate.WriteSet.Policies[policyExistingModPolicy].ModPolicy)
 	assert.Equal(t, modPolicyName, configUpdate.WriteSet.Groups[subGroup].ModPolicy)
 	assert.Equal(t, modPolicyName, configUpdate.WriteSet.Groups[subGroup].Values[valueName].ModPolicy)
 	assert.Equal(t, modPolicyName, configUpdate.WriteSet.Groups[subGroup].Policies[policyName].ModPolicy)
-}
-
-func TestNewChainTemplate(t *testing.T) {
-	consortiumName := "Test"
-	orgs := []string{"org1", "org2", "org3"}
-	nct := NewChainCreationTemplate(consortiumName, orgs)
-
-	newChainID := "foo"
-	configEnv, err := nct.Envelope(newChainID)
-	if err != nil {
-		t.Fatalf("Error creation a chain creation config")
-	}
-
-	configUpdate, err := UnmarshalConfigUpdate(configEnv.ConfigUpdate)
-	if err != nil {
-		t.Fatalf("Should not have errored: %s", err)
-	}
-
-	consortiumProto := &cb.Consortium{}
-	err = proto.Unmarshal(configUpdate.WriteSet.Values[config.ConsortiumKey].Value, consortiumProto)
-	assert.NoError(t, err)
-	assert.Equal(t, consortiumName, consortiumProto.Name, "Should have set correct consortium name")
-
-	assert.Equal(t, configUpdate.WriteSet.Groups[config.ApplicationGroupKey].Version, uint64(1))
-
-	assert.Len(t, configUpdate.WriteSet.Groups[config.ApplicationGroupKey].Groups, len(orgs))
-
-	for _, org := range orgs {
-		_, ok := configUpdate.WriteSet.Groups[config.ApplicationGroupKey].Groups[org]
-		assert.True(t, ok, "Expected to find %s but did not", org)
-	}
+	assert.Equal(t, existingModPolicy, configUpdate.WriteSet.Groups[subGroup].Values[valueExistingModPolicy].ModPolicy)
+	assert.Equal(t, existingModPolicy, configUpdate.WriteSet.Groups[subGroup].Policies[policyExistingModPolicy].ModPolicy)
+	assert.Equal(t, existingModPolicy, configUpdate.WriteSet.Groups[subGroupExistingModPolicy].ModPolicy)
 }

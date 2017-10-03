@@ -26,7 +26,7 @@ MAX_RETRY=5
 CHAINCODE_NAME="myccex02"
 LOG_FILE="scripts1/logs.txt"
 TEMP_LOG_FILE="scripts1/temp_logs.txt"
-ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/cacerts/ca.example.com-cert.pem
+ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
 
 verifyResult () {
 	if [ $1 -ne 0 ] ; then
@@ -72,8 +72,8 @@ installChaincode () {
                         peer chaincode install -n $CHAINCODE_NAME$ch -v 1 -p github.com/hyperledger/fabric/examples/chaincode/go/chaincode_example02 >>$LOG_FILE
                         res=$?
                         verifyResult $res "Chaincode '$CHAINCODE_NAME$ch' installation on remote peer PEER$PEER has Failed"
-                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' is installed on remote peer PEER$PEER successfully===================== " >>$LOG_FILE
-                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' is installed on remote peer PEER$PEER successfully===================== "
+                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' is installed on PEER$PEER successfully===================== " >>$LOG_FILE
+                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' is installed on PEER$PEER successfully===================== "
                         echo
                 done
         done
@@ -93,8 +93,8 @@ instantiateChaincode () {
 	                fi
                         res=$?
                         verifyResult $res "Chaincode '$CHAINCODE_NAME$ch' instantiation on PEER$PEER on channel '$CHANNEL_NAME$i' failed"
-                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' Instantiation on PEER$PEER on channel '$CHANNEL_NAME$i' is successful ===================== ">>$LOG_FILE
-                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' Instantiation on PEER$PEER on channel '$CHANNEL_NAME$i' is successful ===================== "
+                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' Instantiation on PEER$PEER on '$CHANNEL_NAME$i' is successful ===================== ">>$LOG_FILE
+                        echo "===================== Chaincode '$CHAINCODE_NAME$ch' Instantiation on PEER$PEER on '$CHANNEL_NAME$i' is successful ===================== "
                         echo
                 done
         done

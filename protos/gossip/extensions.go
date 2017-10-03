@@ -1,27 +1,19 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package gossip
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/common"
 )
@@ -211,6 +203,16 @@ func (m *GossipMessage) IsDataReq() bool {
 	return m.GetDataReq() != nil
 }
 
+// IsPrivateDataMsg returns whether this message is related to private data
+func (m *GossipMessage) IsPrivateDataMsg() bool {
+	return m.GetPrivateReq() != nil || m.GetPrivateRes() != nil || m.GetPrivateData() != nil
+}
+
+// IsAck returns whether this GossipMessage is an acknowledgement
+func (m *GossipMessage) IsAck() bool {
+	return m.GetAck() != nil
+}
+
 // IsDataUpdate returns whether this GossipMessage is a data update message
 func (m *GossipMessage) IsDataUpdate() bool {
 	return m.GetDataUpdate() != nil
@@ -328,6 +330,11 @@ type ReceivedMessage interface {
 	// GetConnectionInfo returns information about the remote peer
 	// that sent the message
 	GetConnectionInfo() *ConnectionInfo
+
+	// Ack returns to the sender an acknowledgement for the message
+	// An ack can receive an error that indicates that the operation related
+	// to the message has failed
+	Ack(err error)
 }
 
 // ConnectionInfo represents information about
@@ -344,12 +351,6 @@ func (c *ConnectionInfo) String() string {
 	return fmt.Sprintf("%s %v", c.Endpoint, c.ID)
 }
 
-// IsAuthenticated returns whether the connection to the remote peer
-// was authenticated when the handshake took place
-func (c *ConnectionInfo) IsAuthenticated() bool {
-	return c.Auth != nil
-}
-
 // AuthInfo represents the authentication
 // data that was provided by the remote peer
 // at the connection time
@@ -361,7 +362,7 @@ type AuthInfo struct {
 // Sign signs a GossipMessage with given Signer.
 // Returns an Envelope on success,
 // panics on failure.
-func (m *SignedGossipMessage) Sign(signer Signer) *Envelope {
+func (m *SignedGossipMessage) Sign(signer Signer) (*Envelope, error) {
 	// If we have a secretEnvelope, don't override it.
 	// Back it up, and restore it later
 	var secretEnvelope *SecretEnvelope
@@ -371,11 +372,11 @@ func (m *SignedGossipMessage) Sign(signer Signer) *Envelope {
 	m.Envelope = nil
 	payload, err := proto.Marshal(m.GossipMessage)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	sig, err := signer(payload)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	e := &Envelope{
@@ -384,19 +385,19 @@ func (m *SignedGossipMessage) Sign(signer Signer) *Envelope {
 		SecretEnvelope: secretEnvelope,
 	}
 	m.Envelope = e
-	return e
+	return e, nil
 }
 
 // NoopSign creates a SignedGossipMessage with a nil signature
-func (m *GossipMessage) NoopSign() *SignedGossipMessage {
+func (m *GossipMessage) NoopSign() (*SignedGossipMessage, error) {
 	signer := func(msg []byte) ([]byte, error) {
 		return nil, nil
 	}
 	sMsg := &SignedGossipMessage{
 		GossipMessage: m,
 	}
-	sMsg.Sign(signer)
-	return sMsg
+	_, err := sMsg.Sign(signer)
+	return sMsg, err
 }
 
 // Verify verifies a signed GossipMessage with a given Verifier.
@@ -452,19 +453,20 @@ func (e *Envelope) ToGossipMessage() (*SignedGossipMessage, error) {
 
 // SignSecret signs the secret payload and creates
 // a secret envelope out of it.
-func (e *Envelope) SignSecret(signer Signer, secret *Secret) {
+func (e *Envelope) SignSecret(signer Signer, secret *Secret) error {
 	payload, err := proto.Marshal(secret)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	sig, err := signer(payload)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	e.SecretEnvelope = &SecretEnvelope{
 		Payload:   payload,
 		Signature: sig,
 	}
+	return nil
 }
 
 // InternalEndpoint returns the internal endpoint
@@ -520,7 +522,7 @@ func (m *SignedGossipMessage) String() string {
 		var isSimpleMsg bool
 		if m.GetStateResponse() != nil {
 			gMsg = fmt.Sprintf("StateResponse with %d items", len(m.GetStateResponse().Payloads))
-		} else if m.IsDataMsg() {
+		} else if m.IsDataMsg() && m.GetDataMsg().Payload != nil {
 			gMsg = m.GetDataMsg().Payload.toString()
 		} else if m.IsDataUpdate() {
 			update := m.GetDataUpdate()
@@ -529,16 +531,68 @@ func (m *SignedGossipMessage) String() string {
 			gMsg = m.GetMemRes().toString()
 		} else if m.IsStateInfoSnapshot() {
 			gMsg = m.GetStateSnapshot().toString()
+		} else if m.GetPrivateRes() != nil {
+			gMsg = m.GetPrivateRes().ToString()
 		} else {
 			gMsg = m.GossipMessage.String()
 			isSimpleMsg = true
 		}
 		if !isSimpleMsg {
-			desc := fmt.Sprintf("Channel: %v, nonce: %d, tag: %s", m.Channel, m.Nonce, GossipMessage_Tag_name[int32(m.Tag)])
+			desc := fmt.Sprintf("Channel: %s, nonce: %d, tag: %s", string(m.Channel), m.Nonce, GossipMessage_Tag_name[int32(m.Tag)])
 			gMsg = fmt.Sprintf("%s %s", desc, gMsg)
 		}
 	}
 	return fmt.Sprintf("GossipMessage: %v, Envelope: %s", gMsg, env)
+}
+
+func (dd *DataRequest) FormattedDigests() []string {
+	if dd.MsgType == PullMsgType_IDENTITY_MSG {
+		return digestsToHex(dd.Digests)
+	}
+	return dd.Digests
+}
+
+func (dd *DataDigest) FormattedDigests() []string {
+	if dd.MsgType == PullMsgType_IDENTITY_MSG {
+		return digestsToHex(dd.Digests)
+	}
+	return dd.Digests
+}
+
+// Hash returns the SHA256 representation of the PvtDataDigest's bytes
+func (dig *PvtDataDigest) Hash() (string, error) {
+	b, err := proto.Marshal(dig)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(util.ComputeSHA256(b)), nil
+}
+
+// ToString returns a string representation of this RemotePvtDataResponse
+func (res *RemotePvtDataResponse) ToString() string {
+	a := make([]string, len(res.Elements))
+	for i, el := range res.Elements {
+		a[i] = fmt.Sprintf("%s with %d elements", el.Digest.String(), len(el.Payload))
+	}
+	return fmt.Sprintf("%v", a)
+}
+
+func digestsToHex(digests []string) []string {
+	a := make([]string, len(digests))
+	for i, dig := range digests {
+		a[i] = hex.EncodeToString([]byte(dig))
+	}
+	return a
+}
+
+// LedgerHeight returns the ledger height that is specified
+// in the StateInfo message
+func (msg *StateInfo) LedgerHeight() (uint64, error) {
+	if msg.Properties != nil {
+		return msg.Properties.LedgerHeight, nil
+	}
+	metaState, err := common.FromBytes(msg.Metadata)
+	return metaState.LedgerHeight, err
 }
 
 // Abs returns abs(a-b)

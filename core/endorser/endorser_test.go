@@ -17,25 +17,32 @@ limitations under the License.
 package endorser
 
 import (
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	"path/filepath"
-
-	"errors"
+	"github.com/hyperledger/fabric/protos/ledger/rwset"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/factory"
 	mockpolicies "github.com/hyperledger/fabric/common/mocks/policies"
+	//"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/core/aclmgmt"
+	"github.com/hyperledger/fabric/core/aclmgmt/mocks"
 	"github.com/hyperledger/fabric/core/chaincode"
+	"github.com/hyperledger/fabric/core/chaincode/accesscontrol"
 	"github.com/hyperledger/fabric/core/common/ccprovider"
 	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/core/container"
@@ -49,6 +56,7 @@ import (
 	pb "github.com/hyperledger/fabric/protos/peer"
 	pbutils "github.com/hyperledger/fabric/protos/utils"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -102,7 +110,8 @@ func initPeer(chainID string) (*testEnvironment, error) {
 	}
 
 	ccStartupTimeout := time.Duration(30000) * time.Millisecond
-	pb.RegisterChaincodeSupportServer(grpcServer, chaincode.NewChaincodeSupport(getPeerEndpoint, false, ccStartupTimeout))
+	ca, _ := accesscontrol.NewCA()
+	pb.RegisterChaincodeSupportServer(grpcServer, chaincode.NewChaincodeSupport(getPeerEndpoint, false, ccStartupTimeout, ca))
 
 	syscc.RegisterSysCCs()
 
@@ -253,6 +262,9 @@ func deployOrUpgrade(endorserServer pb.EndorserServer, chainID string, spec *pb.
 		return nil, nil, err
 	}
 
+	mockAclProvider.Reset()
+	mockAclProvider.On("CheckACL", aclmgmt.LSCC_GETCCDATA, chainID, signedProp).Return(nil)
+	mockAclProvider.On("CheckACL", aclmgmt.PROPOSE, chainID, signedProp).Return(nil)
 	var resp *pb.ProposalResponse
 	resp, err = endorserServer.ProcessProposal(context.Background(), signedProp)
 
@@ -284,9 +296,12 @@ func invoke(chainID string, spec *pb.ChaincodeSpec) (*pb.Proposal, *pb.ProposalR
 		return nil, nil, "", nil, err
 	}
 
+	mockAclProvider.Reset()
+	mockAclProvider.On("CheckACL", aclmgmt.LSCC_GETCCDATA, chainID, signedProp).Return(nil)
+	mockAclProvider.On("CheckACL", aclmgmt.PROPOSE, chainID, signedProp).Return(nil)
 	resp, err := endorserServer.ProcessProposal(context.Background(), signedProp)
 	if err != nil {
-		return nil, nil, "", nil, fmt.Errorf("Error endorsing %s: %s\n", spec.ChaincodeId, err)
+		return nil, nil, "", nil, err
 	}
 
 	return prop, resp, txID, nonce, err
@@ -312,6 +327,9 @@ func invokeWithOverride(txid string, chainID string, spec *pb.ChaincodeSpec, non
 		return nil, err
 	}
 
+	mockAclProvider.Reset()
+	mockAclProvider.On("CheckACL", aclmgmt.LSCC_GETCCDATA, chainID, signedProp).Return(nil)
+	mockAclProvider.On("CheckACL", aclmgmt.PROPOSE, chainID, signedProp).Return(nil)
 	resp, err := endorserServer.ProcessProposal(context.Background(), signedProp)
 	if err != nil {
 		return nil, fmt.Errorf("Error endorsing %s %s: %s\n", txid, spec.ChaincodeId, err)
@@ -364,6 +382,29 @@ func TestJavaDeploy(t *testing.T) {
 		return
 	}
 	chaincode.GetChain().Stop(context.Background(), cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec})
+}
+
+func TestJavaCheckWithDifferentPackageTypes(t *testing.T) {
+	//try SignedChaincodeDeploymentSpec with go chaincode (type 1)
+	spec := &pb.ChaincodeSpec{Type: 1, ChaincodeId: &pb.ChaincodeID{Name: "gocc", Path: "path/to/cc", Version: "0"}, Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("someargs")}}}
+	cds := &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec, CodePackage: []byte("some code")}
+	env := &common.Envelope{Payload: pbutils.MarshalOrPanic(&common.Payload{Data: pbutils.MarshalOrPanic(&pb.SignedChaincodeDeploymentSpec{ChaincodeDeploymentSpec: pbutils.MarshalOrPanic(cds)})})}
+	//wrap the package in an invocation spec to lscc...
+	b := pbutils.MarshalOrPanic(env)
+
+	lsccCID := &pb.ChaincodeID{Name: "lscc", Version: util.GetSysCCVersion()}
+	lsccSpec := &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Type: pb.ChaincodeSpec_GOLANG, ChaincodeId: lsccCID, Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("install"), b}}}}
+
+	e := &Endorser{}
+	err := e.disableJavaCCInst(lsccCID, lsccSpec)
+	assert.Nil(t, err)
+
+	//now try plain ChaincodeDeploymentSpec...should succeed (go chaincode)
+	b = pbutils.MarshalOrPanic(cds)
+
+	lsccSpec = &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Type: pb.ChaincodeSpec_GOLANG, ChaincodeId: lsccCID, Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("install"), b}}}}
+	err = e.disableJavaCCInst(lsccCID, lsccSpec)
+	assert.Nil(t, err)
 }
 
 //TestRedeploy - deploy two times, second time should fail but example02 should remain deployed
@@ -472,12 +513,32 @@ func TestDeployAndInvoke(t *testing.T) {
 	_, err = invokeWithOverride(txid, chainID, spec, nonce)
 	if err == nil {
 		t.Fail()
-		t.Log("Replay attack protection faild. Transaction with duplicaged txid passed")
+		t.Log("Replay attack protection faild. Transaction with duplicated txid passed")
 		chaincode.GetChain().Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID}})
 		return
 	}
 
-	fmt.Printf("Invoke test passed\n")
+	// Test chaincode endorsement failure when invalid function name supplied
+	f = "invokeinvalid"
+	invokeArgs = append([]string{f}, args...)
+	spec = &pb.ChaincodeSpec{Type: 1, ChaincodeId: chaincodeID, Input: &pb.ChaincodeInput{Args: util.ToChaincodeArgs(invokeArgs...)}}
+	prop, resp, txid, nonce, err = invoke(chainID, spec)
+	if err == nil {
+		t.Fail()
+		t.Logf("expecting fabric to report error from chaincode failure")
+		chaincode.GetChain().Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID}})
+		return
+	} else if _, ok := err.(*chaincodeError); !ok {
+		t.Fail()
+		t.Logf("expecting chaincode error but found %v", err)
+		chaincode.GetChain().Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID}})
+		return
+	}
+
+	if resp != nil {
+		assert.Equal(t, int32(500), resp.Response.Status, "Unexpected response status")
+	}
+
 	t.Logf("Invoke test passed")
 
 	chaincode.GetChain().Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID}})
@@ -535,7 +596,6 @@ func TestDeployAndUpgrade(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("Upgrade test passed\n")
 	t.Logf("Upgrade test passed")
 
 	chaincode.GetChain().Stop(ctxt, cccid1, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID1}})
@@ -602,10 +662,44 @@ func TestWritersACLFail(t *testing.T) {
 		return
 	}
 
-	fmt.Println("TestWritersACLFail passed")
 	t.Logf("TestWritersACLFail passed")
 
 	chaincode.GetChain().Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID}})
+}
+
+func TestHeaderExtensionNoChaincodeID(t *testing.T) {
+	creator, _ := signer.Serialize()
+	nonce := []byte{1, 2, 3}
+	digest, err := factory.GetDefault().Hash(append(nonce, creator...), &bccsp.SHA256Opts{})
+	txID := hex.EncodeToString(digest)
+	spec := &pb.ChaincodeSpec{Type: 1, ChaincodeId: nil, Input: &pb.ChaincodeInput{Args: util.ToChaincodeArgs()}}
+	invocation := &pb.ChaincodeInvocationSpec{ChaincodeSpec: spec}
+	prop, _, _ := pbutils.CreateChaincodeProposalWithTxIDNonceAndTransient(txID, common.HeaderType_ENDORSER_TRANSACTION, util.GetTestChainID(), invocation, []byte{1, 2, 3}, creator, nil)
+	signedProp, _ := getSignedProposal(prop, signer)
+	mockAclProvider.Reset()
+	mockAclProvider.On("CheckACL", aclmgmt.PROPOSE, util.GetTestChainID(), signedProp).Return(nil)
+	_, err = endorserServer.ProcessProposal(context.Background(), signedProp)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ChaincodeHeaderExtension.ChaincodeId is nil")
+}
+
+//rest of the code tests good ACL. Lets now test bad ACL
+func TestResourceBasedACL(t *testing.T) {
+	creator, _ := signer.Serialize()
+	nonce := []byte{1, 2, 3}
+	digest, err := factory.GetDefault().Hash(append(nonce, creator...), &bccsp.SHA256Opts{})
+	txID := hex.EncodeToString(digest)
+	spec := &pb.ChaincodeSpec{Type: 1, ChaincodeId: &pb.ChaincodeID{Path: "/path/to/mycc", Name: "mycc", Version: "0"}, Input: &pb.ChaincodeInput{Args: util.ToChaincodeArgs()}}
+	invocation := &pb.ChaincodeInvocationSpec{ChaincodeSpec: spec}
+	prop, _, _ := pbutils.CreateChaincodeProposalWithTxIDNonceAndTransient(txID, common.HeaderType_ENDORSER_TRANSACTION, util.GetTestChainID(), invocation, []byte{1, 2, 3}, creator, nil)
+	signedProp, _ := getSignedProposal(prop, signer)
+
+	//return Bad ACL
+	mockAclProvider.Reset()
+	mockAclProvider.On("CheckACL", aclmgmt.PROPOSE, util.GetTestChainID(), signedProp).Return(errors.New("Bad ACL"))
+	_, err = endorserServer.ProcessProposal(context.Background(), signedProp)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Bad ACL")
 }
 
 // TestAdminACLFail deploys tried to deploy a chaincode;
@@ -647,7 +741,6 @@ func TestAdminACLFail(t *testing.T) {
 		return
 	}
 
-	fmt.Println("TestAdminACLFail passed")
 	t.Logf("TestATestAdminACLFailCLFail passed")
 
 	chaincode.GetChain().Stop(ctxt, cccid, &pb.ChaincodeDeploymentSpec{ChaincodeSpec: &pb.ChaincodeSpec{ChaincodeId: chaincodeID}})
@@ -676,7 +769,14 @@ func newTempDir() string {
 	return tempDir
 }
 
+var mockAclProvider *mocks.MockACLProvider
+
 func TestMain(m *testing.M) {
+	mockAclProvider = &mocks.MockACLProvider{}
+	mockAclProvider.Reset()
+
+	aclmgmt.RegisterACLProvider(mockAclProvider)
+
 	setupTestConfig()
 
 	chainID := util.GetTestChainID()
@@ -688,7 +788,9 @@ func TestMain(m *testing.M) {
 		return
 	}
 
-	endorserServer = NewEndorserServer()
+	endorserServer = NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
+		return nil
+	})
 
 	// setup the MSP manager so that we can sign/verify
 	err = msptesttools.LoadMSPSetupForTesting()
@@ -731,7 +833,7 @@ func setupTestConfig() {
 	testutil.SetupTestLogging()
 
 	// Set the number of maxprocs
-	viper.GetInt("peer.gomaxprocs")
+	runtime.GOMAXPROCS(viper.GetInt("peer.gomaxprocs"))
 
 	// Init the BCCSP
 	var bccspConfig *factory.FactoryOpts

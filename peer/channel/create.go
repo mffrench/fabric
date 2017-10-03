@@ -23,9 +23,10 @@ import (
 	"errors"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
-	genesisconfig "github.com/hyperledger/fabric/common/configtx/tool/localconfig"
 	localsigner "github.com/hyperledger/fabric/common/localmsp"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/hyperledger/fabric/common/util"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/peer/common"
@@ -59,6 +60,12 @@ func createCmd(cf *ChannelCmdFactory) *cobra.Command {
 			return create(cmd, args, cf)
 		},
 	}
+	flagList := []string{
+		"channelID",
+		"file",
+		"timeout",
+	}
+	attachFlags(createCmd, flagList)
 
 	return createCmd
 }
@@ -69,7 +76,7 @@ func createChannelFromDefaults(cf *ChannelCmdFactory) (*cb.Envelope, error) {
 		return nil, err
 	}
 
-	chCrtEnv, err := configtx.MakeChainCreationTransaction(chainID, genesisconfig.SampleConsortiumName, signer)
+	chCrtEnv, err := channelconfig.MakeChainCreationTransaction(chainID, genesisconfig.SampleConsortiumName, signer)
 
 	if err != nil {
 		return nil, err
@@ -87,7 +94,7 @@ func createChannelFromConfigTx(configTxFileName string) (*cb.Envelope, error) {
 	return utils.UnmarshalEnvelope(cftx)
 }
 
-func sanityCheckAndSignChannelCreateTx(envConfigUpdate *cb.Envelope) (*cb.Envelope, error) {
+func sanityCheckAndSignConfigTx(envConfigUpdate *cb.Envelope) (*cb.Envelope, error) {
 	payload, err := utils.ExtractPayload(envConfigUpdate)
 	if err != nil {
 		return nil, InvalidCreateTx("bad payload")
@@ -108,6 +115,12 @@ func sanityCheckAndSignChannelCreateTx(envConfigUpdate *cb.Envelope) (*cb.Envelo
 
 	if ch.ChannelId == "" {
 		return nil, InvalidCreateTx("empty channel id")
+	}
+
+	// Specifying the chainID on the CLI is usually redundant, as a hack, set it
+	// here if it has not been set explicitly
+	if chainID == "" {
+		chainID = ch.ChannelId
 	}
 
 	if ch.ChannelId != chainID {
@@ -150,7 +163,7 @@ func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 		}
 	}
 
-	if chCrtEnv, err = sanityCheckAndSignChannelCreateTx(chCrtEnv); err != nil {
+	if chCrtEnv, err = sanityCheckAndSignConfigTx(chCrtEnv); err != nil {
 		return err
 	}
 

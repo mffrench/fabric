@@ -1,28 +1,24 @@
 /*
 Copyright IBM Corp. 2017 All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+SPDX-License-Identifier: Apache-2.0
 
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 */
 
 package msp
 
 import (
+	"crypto/ecdsa"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/bccsp"
@@ -122,8 +118,8 @@ func TestMSPSetupNoCryptoConf(t *testing.T) {
 func TestGetters(t *testing.T) {
 	typ := localMsp.GetType()
 	assert.Equal(t, typ, FABRIC)
-	assert.NotNil(t, localMsp.GetRootCerts())
-	assert.NotNil(t, localMsp.GetIntermediateCerts())
+	assert.NotNil(t, localMsp.GetTLSRootCerts())
+	assert.NotNil(t, localMsp.GetTLSIntermediateCerts())
 }
 
 func TestMSPSetupBad(t *testing.T) {
@@ -135,9 +131,9 @@ func TestMSPSetupBad(t *testing.T) {
 
 	mgr := NewMSPManager()
 	err = mgr.Setup(nil)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	err = mgr.Setup([]MSP{})
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestDoubleSetup(t *testing.T) {
@@ -206,7 +202,7 @@ func TestGetSigningIdentityFromVerifyingMSP(t *testing.T) {
 		os.Exit(-1)
 	}
 
-	conf, err = GetVerifyingMspConfig(mspDir, nil, "DEFAULT")
+	conf, err = GetVerifyingMspConfig(mspDir, "DEFAULT")
 	if err != nil {
 		fmt.Printf("Setup should have succeeded, got err %s instead", err)
 		os.Exit(-1)
@@ -266,6 +262,22 @@ func TestValidateCAIdentity(t *testing.T) {
 	caID := getIdentity(t, cacerts)
 
 	err := localMsp.Validate(caID)
+	assert.Error(t, err)
+}
+
+func TestBadAdminIdentity(t *testing.T) {
+	conf, err := GetLocalMspConfig("testdata/badadmin", nil, "DEFAULT")
+	assert.NoError(t, err)
+
+	thisMSP, err := NewBccspMsp()
+	assert.NoError(t, err)
+	ks, err := sw.NewFileBasedKeyStore(nil, filepath.Join("testdata/badadmin", "keystore"), true)
+	assert.NoError(t, err)
+	csp, err := sw.New(256, "SHA2", ks)
+	assert.NoError(t, err)
+	thisMSP.(*bccspmsp).bccsp = csp
+
+	err = thisMSP.Setup(conf)
 	assert.Error(t, err)
 }
 
@@ -344,26 +356,6 @@ func TestIdentitiesGetters(t *testing.T) {
 	assert.NotNil(t, mspid)
 }
 
-func TestUnimplementedMethods(t *testing.T) {
-	id, err := localMsp.GetDefaultSigningIdentity()
-	if err != nil {
-		t.Fatalf("GetSigningIdentity should have succeeded, got err %s", err)
-		return
-	}
-
-	// these methods are currently unimplemented - we assert that they return an error
-	err = id.VerifyOpts(nil, nil, SignatureOpts{})
-	assert.Error(t, err)
-	err = id.VerifyAttributes(nil, nil)
-	assert.Error(t, err)
-	_, err = id.SignOpts(nil, SignatureOpts{})
-	assert.Error(t, err)
-	_, err = id.GetAttributeProof(nil)
-	assert.Error(t, err)
-	err = id.Renew()
-	assert.Error(t, err)
-}
-
 func TestSignAndVerify(t *testing.T) {
 	id, err := localMsp.GetDefaultSigningIdentity()
 	if err != nil {
@@ -411,7 +403,7 @@ func TestSignAndVerify(t *testing.T) {
 func TestSignAndVerifyFailures(t *testing.T) {
 	msg := []byte("foo")
 
-	id, err := localMsp.GetDefaultSigningIdentity()
+	id, err := localMspBad.GetDefaultSigningIdentity()
 	if err != nil {
 		t.Fatalf("GetSigningIdentity should have succeeded")
 		return
@@ -512,7 +504,7 @@ func TestGetOU(t *testing.T) {
 }
 
 func TestGetOUFail(t *testing.T) {
-	id, err := localMsp.GetDefaultSigningIdentity()
+	id, err := localMspBad.GetDefaultSigningIdentity()
 	if err != nil {
 		t.Fatalf("GetSigningIdentity should have succeeded")
 		return
@@ -747,6 +739,15 @@ func TestAdminPolicyPrincipalFails(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestIdentityExpiresAt(t *testing.T) {
+	thisMSP := getLocalMSP(t, "testdata/expiration")
+	assert.NotNil(t, thisMSP)
+	si, err := thisMSP.GetDefaultSigningIdentity()
+	assert.NoError(t, err)
+	expirationDate := si.GetPublicVersion().ExpiresAt()
+	assert.Equal(t, time.Date(2027, 8, 17, 12, 19, 48, 0, time.UTC), expirationDate)
+}
+
 func TestIdentityPolicyPrincipal(t *testing.T) {
 	id, err := localMsp.GetDefaultSigningIdentity()
 	assert.NoError(t, err)
@@ -778,7 +779,6 @@ func TestMSPOus(t *testing.T) {
 	// Set the OUIdentifiers
 	backup := localMsp.(*bccspmsp).ouIdentifiers
 	defer func() { localMsp.(*bccspmsp).ouIdentifiers = backup }()
-
 	id, err := localMsp.GetDefaultSigningIdentity()
 	assert.NoError(t, err)
 
@@ -836,6 +836,9 @@ func TestIdentityPolicyPrincipalFails(t *testing.T) {
 
 var conf *msp.MSPConfig
 var localMsp MSP
+
+// Required because deleting the cert or msp options from localMsp causes parallel tests to fail
+var localMspBad MSP
 var mspMgr MSPManager
 
 func TestMain(m *testing.M) {
@@ -858,7 +861,19 @@ func TestMain(m *testing.M) {
 		os.Exit(-1)
 	}
 
+	localMspBad, err = NewBccspMsp()
+	if err != nil {
+		fmt.Printf("Constructor for msp should have succeeded, got err %s instead", err)
+		os.Exit(-1)
+	}
+
 	err = localMsp.Setup(conf)
+	if err != nil {
+		fmt.Printf("Setup for msp should have succeeded, got err %s instead", err)
+		os.Exit(-1)
+	}
+
+	err = localMspBad.Setup(conf)
 	if err != nil {
 		fmt.Printf("Setup for msp should have succeeded, got err %s instead", err)
 		os.Exit(-1)
@@ -921,4 +936,61 @@ func getLocalMSP(t *testing.T, dir string) MSP {
 	assert.NoError(t, err)
 
 	return thisMSP
+}
+
+func TestMSPIdentityIdentifier(t *testing.T) {
+	// testdata/mspid
+	// 1) a key and a signcert (used to populate the default signing identity) with the cert having a HighS signature
+	thisMSP := getLocalMSP(t, "testdata/mspid")
+
+	id, err := thisMSP.GetDefaultSigningIdentity()
+	assert.NoError(t, err)
+	err = id.Validate()
+	assert.NoError(t, err)
+
+	// Check that the identity identifier is computed with the respect to the lowS signature
+
+	idid := id.GetIdentifier()
+	assert.NotNil(t, idid)
+
+	// Load and parse cacaert and signcert from folder
+	pems, err := getPemMaterialFromDir("testdata/mspid/cacerts")
+	assert.NoError(t, err)
+	bl, _ := pem.Decode(pems[0])
+	assert.NotNil(t, bl)
+	caCertFromFile, err := x509.ParseCertificate(bl.Bytes)
+	assert.NoError(t, err)
+
+	pems, err = getPemMaterialFromDir("testdata/mspid/signcerts")
+	assert.NoError(t, err)
+	bl, _ = pem.Decode(pems[0])
+	assert.NotNil(t, bl)
+	certFromFile, err := x509.ParseCertificate(bl.Bytes)
+	assert.NoError(t, err)
+	// Check that the certificates' raws are different, meaning that the identity has been sanitised
+	assert.NotEqual(t, certFromFile.Raw, id.(*signingidentity).cert)
+
+	// Check that certFromFile is in HighS
+	_, S, err := sw.UnmarshalECDSASignature(certFromFile.Signature)
+	assert.NoError(t, err)
+	lowS, err := sw.IsLowS(caCertFromFile.PublicKey.(*ecdsa.PublicKey), S)
+	assert.NoError(t, err)
+	assert.False(t, lowS)
+
+	// Check that id.(*signingidentity).cert is in LoswS
+	_, S, err = sw.UnmarshalECDSASignature(id.(*signingidentity).cert.Signature)
+	assert.NoError(t, err)
+	lowS, err = sw.IsLowS(caCertFromFile.PublicKey.(*ecdsa.PublicKey), S)
+	assert.NoError(t, err)
+	assert.True(t, lowS)
+
+	// Compute the digest for certFromFile
+	thisBCCSPMsp := thisMSP.(*bccspmsp)
+	hashOpt, err := bccsp.GetHashOpt(thisBCCSPMsp.cryptoConfig.IdentityIdentifierHashFunction)
+	assert.NoError(t, err)
+	digest, err := thisBCCSPMsp.bccsp.Hash(certFromFile.Raw, hashOpt)
+	assert.NoError(t, err)
+
+	// Compare with the digest computed from the sanitised cert
+	assert.NotEqual(t, idid.Id, hex.EncodeToString(digest))
 }

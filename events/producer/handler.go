@@ -51,6 +51,8 @@ func getInterestKey(interest pb.Interest) string {
 	switch interest.EventType {
 	case pb.EventType_BLOCK:
 		key = "/" + strconv.Itoa(int(pb.EventType_BLOCK))
+	case pb.EventType_FILTEREDBLOCK:
+		key = "/" + strconv.Itoa(int(pb.EventType_FILTEREDBLOCK))
 	case pb.EventType_REJECTION:
 		key = "/" + strconv.Itoa(int(pb.EventType_REJECTION))
 	case pb.EventType_CHAINCODE:
@@ -117,7 +119,7 @@ func (d *handler) HandleMessage(msg *pb.SignedEvent) error {
 		}
 	case nil:
 	default:
-		return fmt.Errorf("invalide type from client %T", evt.Event)
+		return fmt.Errorf("invalid type from client %T", evt.Event)
 	}
 	//TODO return supported events.. for now just return the received msg
 	if err := d.ChatStream.Send(evt); err != nil {

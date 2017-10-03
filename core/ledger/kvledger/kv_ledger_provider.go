@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package kvledger
@@ -22,16 +12,13 @@ import (
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/common/ledger/blkstorage"
-	"github.com/hyperledger/fabric/common/ledger/blkstorage/fsblkstorage"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/history/historydb"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/history/historydb/historyleveldb"
-	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb"
-	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb/statecouchdb"
-	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb/stateleveldb"
+	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/privacyenabledstate"
 	"github.com/hyperledger/fabric/core/ledger/ledgerconfig"
+	"github.com/hyperledger/fabric/core/ledger/ledgerstorage"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -51,10 +38,10 @@ var (
 
 // Provider implements interface ledger.PeerLedgerProvider
 type Provider struct {
-	idStore            *idStore
-	blockStoreProvider blkstorage.BlockStoreProvider
-	vdbProvider        statedb.VersionedDBProvider
-	historydbProvider  historydb.HistoryDBProvider
+	idStore             *idStore
+	ledgerStoreProvider *ledgerstorage.Provider
+	vdbProvider         privacyenabledstate.DBProvider
+	historydbProvider   historydb.HistoryDBProvider
 }
 
 // NewProvider instantiates a new Provider.
@@ -66,32 +53,12 @@ func NewProvider() (ledger.PeerLedgerProvider, error) {
 	// Initialize the ID store (inventory of chainIds/ledgerIds)
 	idStore := openIDStore(ledgerconfig.GetLedgerProviderPath())
 
-	// Initialize the block storage
-	attrsToIndex := []blkstorage.IndexableAttr{
-		blkstorage.IndexableAttrBlockHash,
-		blkstorage.IndexableAttrBlockNum,
-		blkstorage.IndexableAttrTxID,
-		blkstorage.IndexableAttrBlockNumTranNum,
-		blkstorage.IndexableAttrBlockTxID,
-		blkstorage.IndexableAttrTxValidationCode,
-	}
-	indexConfig := &blkstorage.IndexConfig{AttrsToIndex: attrsToIndex}
-	blockStoreProvider := fsblkstorage.NewProvider(
-		fsblkstorage.NewConf(ledgerconfig.GetBlockStorePath(), ledgerconfig.GetMaxBlockfileSize()),
-		indexConfig)
+	ledgerStoreProvider := ledgerstorage.NewProvider()
 
 	// Initialize the versioned database (state database)
-	var vdbProvider statedb.VersionedDBProvider
-	if !ledgerconfig.IsCouchDBEnabled() {
-		logger.Debug("Constructing leveldb VersionedDBProvider")
-		vdbProvider = stateleveldb.NewVersionedDBProvider()
-	} else {
-		logger.Debug("Constructing CouchDB VersionedDBProvider")
-		var err error
-		vdbProvider, err = statecouchdb.NewVersionedDBProvider()
-		if err != nil {
-			return nil, err
-		}
+	vdbProvider, err := privacyenabledstate.NewCommonStorageDBProvider()
+	if err != nil {
+		return nil, err
 	}
 
 	// Initialize the history database (index for history of values by key)
@@ -99,7 +66,7 @@ func NewProvider() (ledger.PeerLedgerProvider, error) {
 	historydbProvider = historyleveldb.NewHistoryDBProvider()
 
 	logger.Info("ledger provider Initialized")
-	provider := &Provider{idStore, blockStoreProvider, vdbProvider, historydbProvider}
+	provider := &Provider{idStore, ledgerStoreProvider, vdbProvider, historydbProvider}
 	provider.recoverUnderConstructionLedger()
 	return provider, nil
 }
@@ -124,19 +91,21 @@ func (provider *Provider) Create(genesisBlock *common.Block) (ledger.PeerLedger,
 	if err = provider.idStore.setUnderConstructionFlag(ledgerID); err != nil {
 		return nil, err
 	}
-	ledger, err := provider.openInternal(ledgerID)
+	lgr, err := provider.openInternal(ledgerID)
 	if err != nil {
 		logger.Errorf("Error in opening a new empty ledger. Unsetting under construction flag. Err: %s", err)
 		panicOnErr(provider.runCleanup(ledgerID), "Error while running cleanup for ledger id [%s]", ledgerID)
 		panicOnErr(provider.idStore.unsetUnderConstructionFlag(), "Error while unsetting under construction flag")
 		return nil, err
 	}
-	if err := ledger.Commit(genesisBlock); err != nil {
-		ledger.Close()
+	if err := lgr.CommitWithPvtData(&ledger.BlockAndPvtData{
+		Block: genesisBlock,
+	}); err != nil {
+		lgr.Close()
 		return nil, err
 	}
 	panicOnErr(provider.idStore.createLedgerID(ledgerID, genesisBlock), "Error while marking ledger as created")
-	return ledger, nil
+	return lgr, nil
 }
 
 // Open implements the corresponding method from interface ledger.PeerLedgerProvider
@@ -155,7 +124,7 @@ func (provider *Provider) Open(ledgerID string) (ledger.PeerLedger, error) {
 
 func (provider *Provider) openInternal(ledgerID string) (ledger.PeerLedger, error) {
 	// Get the block store for a chain/ledger
-	blockStore, err := provider.blockStoreProvider.OpenBlockStore(ledgerID)
+	blockStore, err := provider.ledgerStoreProvider.Open(ledgerID)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +163,7 @@ func (provider *Provider) List() ([]string, error) {
 // Close implements the corresponding method from interface ledger.PeerLedgerProvider
 func (provider *Provider) Close() {
 	provider.idStore.close()
-	provider.blockStoreProvider.Close()
+	provider.ledgerStoreProvider.Close()
 	provider.vdbProvider.Close()
 	provider.historydbProvider.Close()
 }

@@ -25,25 +25,31 @@ import (
 	"github.com/hyperledger/fabric/protos/peer"
 )
 
+type ExecuteChaincodeResultProvider interface {
+	ExecuteChaincodeResult() (*peer.Response, *peer.ChaincodeEvent, error)
+}
+
 // MockCcProviderFactory is a factory that returns
 // mock implementations of the ccprovider.ChaincodeProvider interface
 type MockCcProviderFactory struct {
+	ExecuteResultProvider ExecuteChaincodeResultProvider
 }
 
 // NewChaincodeProvider returns a mock implementation of the ccprovider.ChaincodeProvider interface
 func (c *MockCcProviderFactory) NewChaincodeProvider() ccprovider.ChaincodeProvider {
-	return &mockCcProviderImpl{}
+	return &mockCcProviderImpl{c.ExecuteResultProvider}
 }
 
 // mockCcProviderImpl is a mock implementation of the chaincode provider
 type mockCcProviderImpl struct {
+	executeResultProvider ExecuteChaincodeResultProvider
 }
 
 type mockCcProviderContextImpl struct {
 }
 
 // GetContext does nothing
-func (c *mockCcProviderImpl) GetContext(ledger ledger.PeerLedger) (context.Context, error) {
+func (c *mockCcProviderImpl) GetContext(ledger ledger.PeerLedger, txid string) (context.Context, error) {
 	return nil, nil
 }
 
@@ -59,6 +65,9 @@ func (c *mockCcProviderImpl) GetCCValidationInfoFromLSCC(ctxt context.Context, t
 
 // ExecuteChaincode does nothing
 func (c *mockCcProviderImpl) ExecuteChaincode(ctxt context.Context, cccid interface{}, args [][]byte) (*peer.Response, *peer.ChaincodeEvent, error) {
+	if c.executeResultProvider != nil {
+		return c.executeResultProvider.ExecuteChaincodeResult()
+	}
 	return &peer.Response{Status: shim.OK}, nil, nil
 }
 
@@ -67,7 +76,7 @@ func (c *mockCcProviderImpl) Execute(ctxt context.Context, cccid interface{}, sp
 	return nil, nil, nil
 }
 
-// ExecuteWithErrorFilder executes the chaincode given context and spec and returns payload
+// ExecuteWithErrorFilter executes the chaincode given context and spec and returns payload
 func (c *mockCcProviderImpl) ExecuteWithErrorFilter(ctxt context.Context, cccid interface{}, spec interface{}) ([]byte, *peer.ChaincodeEvent, error) {
 	return nil, nil, nil
 }

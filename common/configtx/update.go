@@ -18,6 +18,7 @@ package configtx
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hyperledger/fabric/common/policies"
 	cb "github.com/hyperledger/fabric/protos/common"
@@ -54,8 +55,37 @@ func ComputeDeltaSet(readSet, writeSet map[string]comparable) map[string]compara
 	return result
 }
 
+func validateModPolicy(modPolicy string) error {
+	if modPolicy == "" {
+		return fmt.Errorf("mod_policy not set")
+	}
+
+	trimmed := modPolicy
+	if modPolicy[0] == '/' {
+		trimmed = modPolicy[1:]
+	}
+
+	for i, pathElement := range strings.Split(trimmed, PathSeparator) {
+		err := validateConfigID(pathElement)
+		if err != nil {
+			return fmt.Errorf("path element at %d is invalid: %s", i, err)
+		}
+	}
+	return nil
+
+}
+
 func (cm *configManager) verifyDeltaSet(deltaSet map[string]comparable, signedData []*cb.SignedData) error {
+	if len(deltaSet) == 0 {
+		return fmt.Errorf("Delta set was empty.  Update would have no effect.")
+	}
+
 	for key, value := range deltaSet {
+		logger.Debugf("Processing change to key: %s", key)
+		if err := validateModPolicy(value.modPolicy()); err != nil {
+			return fmt.Errorf("invalid mod_policy for element %s: %s", key, err)
+		}
+
 		existing, ok := cm.current.configMap[key]
 		if !ok {
 			if value.version() != 0 {
@@ -107,7 +137,7 @@ func (cm *configManager) authorizeUpdate(configUpdateEnv *cb.ConfigUpdateEnvelop
 		return nil, fmt.Errorf("Update not for correct channel: %s for %s", configUpdate.ChannelId, cm.current.channelID)
 	}
 
-	readSet, err := MapConfig(configUpdate.ReadSet)
+	readSet, err := MapConfig(configUpdate.ReadSet, cm.initializer.RootGroupKey())
 	if err != nil {
 		return nil, fmt.Errorf("Error mapping ReadSet: %s", err)
 	}
@@ -116,7 +146,7 @@ func (cm *configManager) authorizeUpdate(configUpdateEnv *cb.ConfigUpdateEnvelop
 		return nil, fmt.Errorf("Error validating ReadSet: %s", err)
 	}
 
-	writeSet, err := MapConfig(configUpdate.WriteSet)
+	writeSet, err := MapConfig(configUpdate.WriteSet, cm.initializer.RootGroupKey())
 	if err != nil {
 		return nil, fmt.Errorf("Error mapping WriteSet: %s", err)
 	}
@@ -140,19 +170,32 @@ func (cm *configManager) authorizeUpdate(configUpdateEnv *cb.ConfigUpdateEnvelop
 }
 
 func (cm *configManager) policyForItem(item comparable) (policies.Policy, bool) {
-	// path is always at least of length 1
-	manager, ok := cm.PolicyManager().Manager(item.path[1:])
-	if !ok {
-		return nil, ok
+	manager := cm.initializer.PolicyManager()
+
+	modPolicy := item.modPolicy()
+	logger.Debugf("Getting policy for item %s with mod_policy %s", item.key, modPolicy)
+
+	// If the mod_policy path is relative, get the right manager for the context
+	// if the mod_policy path is absolute (starts with /) evaluate at the root
+	if len(modPolicy) > 0 && modPolicy[0] != policies.PathSeparator[0] {
+		// path is always at least of length 1
+		var ok bool
+		manager, ok = manager.Manager(item.path[1:])
+		if !ok {
+			logger.Debugf("Could not find manager at path: %v", item.path[1:])
+			return nil, ok
+		}
+
+		// In the case of the group type, its key is part of its path for the purposes of finding the policy manager
+		if item.ConfigGroup != nil {
+			manager, ok = manager.Manager([]string{item.key})
+		}
+		if !ok {
+			logger.Debugf("Could not find group at subpath: %v", item.key)
+			return nil, ok
+		}
 	}
 
-	// In the case of the group type, its key is part of its path for the purposes of finding the policy manager
-	if item.ConfigGroup != nil {
-		manager, ok = manager.Manager([]string{item.key})
-	}
-	if !ok {
-		return nil, ok
-	}
 	return manager.GetPolicy(item.modPolicy())
 }
 

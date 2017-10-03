@@ -1,12 +1,20 @@
 Contributions Welcome!
 ======================
 
-We welcome contributions to the Hyperledger Project in many forms, and
+We welcome contributions to Hyperledger in many forms, and
 there's always plenty to do!
 
-First things first, please review the Hyperledger Project's `Code of
+First things first, please review the Hyperledger `Code of
 Conduct <https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct>`__
 before participating. It is important that we keep things civil.
+
+Install prerequisites
+---------------------
+
+Before we begin, if you haven't already done so, you may wish to check that
+you have all the :doc:`prerequisites <prereqs>` installed on the platform(s)
+on which you'll be developing blockchain applications and/or operating
+Hyperledger Fabric.
 
 Getting a Linux Foundation account
 ----------------------------------
@@ -64,8 +72,10 @@ If you are a user and you find a bug, please submit an issue using
 Please try to provide sufficient information for someone else to reproduce the
 issue. One of the project's maintainers should respond to your issue within 24
 hours. If not, please bump the issue with a comment and request that it be
-reviewed. You can also post to the ``#fabric-maintainers`` channel in
-`chat <https://chat.hyperledger.org/channel/fabric-maintainers>`__.
+reviewed. You can also post to the relevant fabric channel in
+`Hyperledger Rocket Chat <https://chat.hyperledger.org>`__.  For example, a doc bug should
+be broadcast to ``#fabric-documentation``, a database bug to ``#fabric-ledger``,
+and so on... 
 
 Fixing issues and working stories
 ---------------------------------
@@ -103,7 +113,7 @@ Discussion of the proposed feature should be conducted in the JIRA issue itself,
 so that we have a consistent pattern within our community as to where to find
 design discussion.
 
-Getting the support of three or more of the Fabric maintainers for the new
+Getting the support of three or more of the Hyperledger Fabric maintainers for the new
 feature will greatly enhance the probability that the feature's related CRs
 will be merged.
 
@@ -124,10 +134,10 @@ you should be ready to set up your local development
 Next, try :doc:`building the project <dev-setup/build>` in your local
 development environment to ensure that everything is set up correctly.
 
-:doc:`Logging control <Setup/logging-control>` describes how to tweak
-the logging levels of various components within the Fabric. Finally,
-every source file needs to include a `license header
-<https://github.com/hyperledger/fabric/blob/master/docs/source/dev-setup/headers.txt>`__: modified to include a copyright
+The :doc:`logging-control` document describes how to tweak
+the logging levels of various components within Hyperledger Fabric. Finally,
+every source file needs to include a
+`license header <https://github.com/hyperledger/fabric/blob/master/docs/source/dev-setup/headers.txt>`__: modified to include a copyright
 statement for the principle author(s).
 
 What makes a good change request?
@@ -162,7 +172,7 @@ What makes a good change request?
    Development. They place a watch on the directory that invokes the
    tests automagically as the code is changed. This is far more
    efficient than having to run a whole build between code changes. See
-   `this definition<http://artofunittesting.com/definition-of-a-unit-test/>`__
+   `this definition <http://artofunittesting.com/definition-of-a-unit-test/>`__
    of unit testing for a good set of criteria to keep in mind for writing
    effective unit tests.
 
@@ -227,8 +237,7 @@ Maintainers
 The project's :doc:`maintainers <MAINTAINERS>` are responsible for
 reviewing and merging all patches submitted for review and they guide
 the over-all technical direction of the project within the guidelines
-established by the Hyperledger Project's Technical Steering Committee
-(TSC).
+established by the Hyperledger Technical Steering Committee (TSC).
 
 Becoming a maintainer
 ~~~~~~~~~~~~~~~~~~~~~
@@ -240,15 +249,13 @@ designate an initial set of maintainers that will be approved by the
 top-level project's existing maintainers when the project is first
 approved. The project's maintainers will, from time-to-time, consider
 adding or removing a maintainer. An existing maintainer can submit a
-change set to the :doc:`MAINTAINERS.rst <MAINTAINERS>` file. If there are
-less than eight maintainers, a majority of the existing maintainers on
-that project are required to merge the change set. If there are more
-than eight existing maintainers, then if five or more of the maintainers
-concur with the proposal, the change set is then merged and the
-individual is added to (or alternatively, removed from) the maintainers
-group. explicit resignation, some infraction of the `code of
-conduct <https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct>`__
-or consistently demonstrating poor judgement.
+change set to the :doc:`MAINTAINERS.rst <MAINTAINERS>` file. A nominated
+Contributor may become a Maintainer by a majority approval of the proposal
+by the existing Maintainers. Once approved, the change set is then merged
+and the individual is added to (or alternatively, removed from) the maintainers
+group. Maintainers may be removed by explicit resignation, or for some
+infraction of the `code of conduct <https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct>`__
+or by consistently demonstrating poor judgement.
 
 Legal stuff
 -----------
@@ -260,7 +267,7 @@ Software License 2.0. See the template of the `license header
 We have tried to make it as easy as possible to make contributions. This
 applies to how we handle the legal aspects of contribution. We use the
 same approach—the `Developer's Certificate of Origin 1.1
-(DCO) <https://github.com/hyperledger/fabric/blob/master/docs/source/biz/DCO1.1.txt>`__—that the Linux® Kernel
+(DCO) <https://github.com/hyperledger/fabric/blob/master/docs/source/DCO1.1.txt>`__—that the Linux® Kernel
 `community <http://elinux.org/Developer_Certificate_Of_Origin>`__ uses
 to manage code contributions.
 
@@ -276,3 +283,6 @@ submitter accepts the DCO:
 
 You can include this automatically when you commit a change to your
 local git repository using ``git commit -s``.
+
+.. Licensed under Creative Commons Attribution 4.0 International License
+   https://creativecommons.org/licenses/by/4.0/

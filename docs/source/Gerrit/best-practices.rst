@@ -88,7 +88,7 @@ as a topic in **TopicName** use the following command as an example:
 
 $ git push REMOTE HEAD:refs/for/master/TopicName
 
-The topic will show up in the review :abbr:``UI`` and in the
+The topic will show up in the review ``UI`` and in the
 ``Open Changes List``. Topic branches will disappear from the master
 tree when its content is merged.
 
@@ -369,3 +369,7 @@ Author line.
 To make these configuration changes specifically for the current Git
 user, you must add the path option ``--global`` to ``config`` as
 follows:
+
+.. Licensed under Creative Commons Attribution 4.0 International License
+   https://creativecommons.org/licenses/by/4.0/
+

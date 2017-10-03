@@ -21,11 +21,11 @@ import (
 	"strings"
 
 	cb "github.com/hyperledger/fabric/protos/common"
+
+	"github.com/golang/protobuf/proto"
 )
 
 const (
-	RootGroupKey = "Channel"
-
 	GroupPrefix  = "[Groups] "
 	ValuePrefix  = "[Values] "
 	PolicyPrefix = "[Policy] " // The plurarility doesn't match, but, it makes the logs much easier being the same length as "Groups" and "Values"
@@ -35,10 +35,10 @@ const (
 
 // MapConfig is intended to be called outside this file
 // it takes a ConfigGroup and generates a map of fqPath to comparables (or error on invalid keys)
-func MapConfig(channelGroup *cb.ConfigGroup) (map[string]comparable, error) {
+func MapConfig(channelGroup *cb.ConfigGroup, rootGroupKey string) (map[string]comparable, error) {
 	result := make(map[string]comparable)
 	if channelGroup != nil {
-		err := recurseConfig(result, []string{RootGroupKey}, channelGroup)
+		err := recurseConfig(result, []string{rootGroupKey}, channelGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -59,8 +59,7 @@ func addToMap(cg comparable, result map[string]comparable) error {
 		fqPath = PolicyPrefix
 	}
 
-	// TODO rename validateChainID to validateConfigID
-	if err := validateChainID(cg.key); err != nil {
+	if err := validateConfigID(cg.key); err != nil {
 		return fmt.Errorf("Illegal characters in key: %s", fqPath)
 	}
 
@@ -84,7 +83,9 @@ func recurseConfig(result map[string]comparable, path []string, group *cb.Config
 	}
 
 	for key, group := range group.Groups {
-		nextPath := append(path, key)
+		nextPath := make([]string, len(path)+1)
+		copy(nextPath, path)
+		nextPath[len(nextPath)-1] = key
 		if err := recurseConfig(result, nextPath, group); err != nil {
 			return err
 		}
@@ -107,13 +108,13 @@ func recurseConfig(result map[string]comparable, path []string, group *cb.Config
 
 // configMapToConfig is intended to be called from outside this file
 // It takes a configMap and converts it back into a *cb.ConfigGroup structure
-func configMapToConfig(configMap map[string]comparable) (*cb.ConfigGroup, error) {
-	rootPath := PathSeparator + RootGroupKey
+func configMapToConfig(configMap map[string]comparable, rootGroupKey string) (*cb.ConfigGroup, error) {
+	rootPath := PathSeparator + rootGroupKey
 	return recurseConfigMap(rootPath, configMap)
 }
 
 // recurseConfigMap is used only internally by configMapToConfig
-// Note, this function mutates the cb.Config* entrieswithin configMap, so errors are generally fatal
+// Note, this function no longer mutates the cb.Config* entries within configMap
 func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigGroup, error) {
 	groupPath := GroupPrefix + path
 	group, ok := configMap[groupPath]
@@ -125,12 +126,15 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 		return nil, fmt.Errorf("ConfigGroup not found at group path: %s", groupPath)
 	}
 
+	newConfigGroup := cb.NewConfigGroup()
+	proto.Merge(newConfigGroup, group.ConfigGroup)
+
 	for key, _ := range group.Groups {
 		updatedGroup, err := recurseConfigMap(path+PathSeparator+key, configMap)
 		if err != nil {
 			return nil, err
 		}
-		group.Groups[key] = updatedGroup
+		newConfigGroup.Groups[key] = updatedGroup
 	}
 
 	for key, _ := range group.Values {
@@ -142,7 +146,7 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 		if value.ConfigValue == nil {
 			return nil, fmt.Errorf("ConfigValue not found at value path: %s", valuePath)
 		}
-		group.Values[key] = value.ConfigValue
+		newConfigGroup.Values[key] = proto.Clone(value.ConfigValue).(*cb.ConfigValue)
 	}
 
 	for key, _ := range group.Policies {
@@ -154,8 +158,9 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 		if policy.ConfigPolicy == nil {
 			return nil, fmt.Errorf("ConfigPolicy not found at policy path: %s", policyPath)
 		}
-		group.Policies[key] = policy.ConfigPolicy
+		newConfigGroup.Policies[key] = proto.Clone(policy.ConfigPolicy).(*cb.ConfigPolicy)
+		logger.Debugf("Setting policy for key %s to %+v", key, group.Policies[key])
 	}
 
-	return group.ConfigGroup, nil
+	return newConfigGroup, nil
 }

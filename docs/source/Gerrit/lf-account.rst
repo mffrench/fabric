@@ -1,7 +1,7 @@
 Requesting a Linux Foundation Account
 =====================================
 
-Contributions to the Fabric code base require a Linux Foundation
+Contributions to the Hyperledger Fabric code base require a Linux Foundation
 account. Follow the steps below to create a Linux Foundation account.
 
 Creating a Linux Foundation ID
@@ -115,3 +115,7 @@ Checking Out the Source Code
 
 You have successfully checked out a copy of the source code to your
 local machine.
+
+.. Licensed under Creative Commons Attribution 4.0 International License
+   https://creativecommons.org/licenses/by/4.0/
+

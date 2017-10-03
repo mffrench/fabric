@@ -1,5 +1,5 @@
-Welcome to Fabric
-=================
+Welcome to Hyperledger Fabric
+=============================
 
 Hyperledger Fabric is a platform for distributed ledger solutions, underpinned
 by a modular architecture delivering high degrees of confidentiality, resiliency,
@@ -13,44 +13,48 @@ future of enterprise blockchain requires building on top of a fully-vetted,
 open source architecture; Hyperledger Fabric is your starting point.
 
 It's recommended for first-time users to begin by going through the
-:doc:`getting_started` section in order to gain familiarity with the Fabric
+:doc:`getting_started` section in order to gain familiarity with the Hyperledger Fabric
 components and the basic transaction flow.  Once comfortable, continue
 exploring the library for demos, technical specifications, APIs, etc.
 
-Before diving in, watch how Fabric is `Building a Blockchain for Business <https://www.youtube.com/watch?v=EKa5Gh9whgU>`__ .
+.. note:: If you have questions not addressed by this documentation, or run into
+          issues with any of the tutorials, please visit the :doc:`questions`
+          page for some tips on where to find additional help.
 
+Before diving in, watch how Hyperledger Fabric is Building a Blockchain for
+Business:
 
+.. raw:: html
 
-.. NOTE:: This build of the docs is from the "|version|" branch
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Get the Code
-
-   releases
+   <iframe width="560" height="315" src="https://www.youtube.com/embed/EKa5Gh9whgU" frameborder="0" allowfullscreen></iframe>
+   <br/><br/>
 
 .. toctree::
    :maxdepth: 2
    :caption: Getting Started
 
+   prereqs
    getting_started
+   samples
 
 .. toctree::
    :maxdepth: 2
    :caption: Key Concepts
 
-   overview
+   blockchain
    capabilities
    fabric_model
    usecases
-
 
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials
 
-   demos
+   build_network
+   write_first_app
    chaincode
+   chaincode4ade
+   chaincode4noah
    videos
 
 .. toctree::
@@ -58,11 +62,14 @@ Before diving in, watch how Fabric is `Building a Blockchain for Business <https
    :caption: Operations Guide
 
    best_practices
+   msp
    configtx
    configtxgen
+   configtxlator
    cc-packaging-and-signing
+   endorsement-policies
    error-handling
-   Setup/logging-control
+   logging-control
 
 .. toctree::
    :maxdepth: 2
@@ -70,10 +77,9 @@ Before diving in, watch how Fabric is `Building a Blockchain for Business <https
 
    arch-deep-dive
    txflow
-   Setup/ca-setup
-   endorsement-policies
-   nodesdk
-   orderingservice
+   Hyperledger Fabric CA's User Guide <http://hyperledger-fabric-ca.readthedocs.io/en/latest>
+   fabric-sdks
+   kafka
    channels
    ledger
    readwrite
@@ -83,17 +89,12 @@ Before diving in, watch how Fabric is `Building a Blockchain for Business <https
    :maxdepth: 2
    :caption: Troubleshooting and FAQs
 
-   troubleshooting
-   FAQ/architecture_FAQ
-   FAQ/chaincode_FAQ
-   FAQ/identity_management_FAQ
+   Fabric-FAQ
 
 .. toctree::
    :maxdepth: 2
-   :caption: Appendix
+   :caption: Contributing
 
-   glossary
-   releases
    CONTRIBUTING
    MAINTAINERS
    jira_navigation
@@ -106,7 +107,15 @@ Before diving in, watch how Fabric is `Building a Blockchain for Business <https
    Gerrit/best-practices
    testing
    Style-guides/go-style
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Appendix
+
+   glossary
+   releases
    questions
-   quality
    status
-   license
+
+.. Licensed under Creative Commons Attribution 4.0 International License
+   https://creativecommons.org/licenses/by/4.0/

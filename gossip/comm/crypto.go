@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package comm
@@ -23,12 +13,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"os"
-	"time"
+
+	"errors"
 
 	"github.com/hyperledger/fabric/common/util"
 	gutil "github.com/hyperledger/fabric/gossip/util"
@@ -121,24 +110,4 @@ func extractCertificateHashFromContext(ctx context.Context) []byte {
 	}
 	raw := certs[0].Raw
 	return certHashFromRawCert(raw)
-}
-
-type authCreds struct {
-	tlsCreds credentials.TransportCredentials
-}
-
-func (c authCreds) Info() credentials.ProtocolInfo {
-	return c.tlsCreds.Info()
-}
-
-func (c *authCreds) ClientHandshake(addr string, rawConn net.Conn, timeout time.Duration) (_ net.Conn, _ credentials.AuthInfo, err error) {
-	conn, auth, err := c.tlsCreds.ClientHandshake(addr, rawConn, timeout)
-	if auth == nil && conn != nil {
-		auth = credentials.TLSInfo{State: conn.(*tls.Conn).ConnectionState()}
-	}
-	return conn, auth, err
-}
-
-func (c *authCreds) ServerHandshake(rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
-	return c.tlsCreds.ServerHandshake(rawConn)
 }

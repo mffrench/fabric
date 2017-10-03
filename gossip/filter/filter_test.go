@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2017 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-                 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package filter
@@ -19,6 +9,7 @@ package filter
 import (
 	"testing"
 
+	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/discovery"
 	"github.com/stretchr/testify/assert"
@@ -44,6 +35,48 @@ func TestCombineRoutingFilters(t *testing.T) {
 	assert.True(t, CombineRoutingFilters(a, b)(nm))
 	assert.False(t, CombineRoutingFilters(CombineRoutingFilters(a, b), SelectNonePolicy)(nm))
 	assert.False(t, CombineRoutingFilters(a, b)(discovery.NetworkMember{InternalEndpoint: "b"}))
+}
+
+func TestAnyMatch(t *testing.T) {
+	peerA := discovery.NetworkMember{Endpoint: "a"}
+	peerB := discovery.NetworkMember{Endpoint: "b"}
+	peerC := discovery.NetworkMember{Endpoint: "c"}
+	peerD := discovery.NetworkMember{Endpoint: "d"}
+
+	peers := []discovery.NetworkMember{peerA, peerB, peerC, peerD}
+
+	matchB := func(nm discovery.NetworkMember) bool {
+		return nm.Endpoint == "b"
+	}
+	matchC := func(nm discovery.NetworkMember) bool {
+		return nm.Endpoint == "c"
+	}
+
+	matched := AnyMatch(peers, matchB, matchC)
+	assert.Len(t, matched, 2)
+	assert.Contains(t, matched, peerB)
+	assert.Contains(t, matched, peerC)
+}
+
+func TestFirst(t *testing.T) {
+	peerA := discovery.NetworkMember{Endpoint: "a"}
+	peerB := discovery.NetworkMember{Endpoint: "b"}
+	peers := []discovery.NetworkMember{peerA, peerB}
+	assert.Equal(t, &comm.RemotePeer{Endpoint: "a"}, First(peers, func(discovery.NetworkMember) bool {
+		return true
+	}))
+
+	assert.Equal(t, &comm.RemotePeer{Endpoint: "b"}, First(peers, func(nm discovery.NetworkMember) bool {
+		return nm.PreferredEndpoint() == "b"
+	}))
+
+	peerAA := discovery.NetworkMember{Endpoint: "aa"}
+	peerAB := discovery.NetworkMember{Endpoint: "ab"}
+	peers = append(peers, peerAA)
+	peers = append(peers, peerAB)
+	assert.Equal(t, &comm.RemotePeer{Endpoint: "aa"}, First(peers, func(nm discovery.NetworkMember) bool {
+		return len(nm.PreferredEndpoint()) > 1
+	}))
 }
 
 func TestSelectPeers(t *testing.T) {

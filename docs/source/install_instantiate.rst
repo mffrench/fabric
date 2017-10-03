@@ -3,12 +3,12 @@ Install and Instantiate
 
 This tutorial requires the latest builds for
 ``hyperledger/fabric-baseimage``, ``hyperledger/fabric-peer`` and
-``hyperledger/fabric-orderer``. Rather than pull from docker hub, you
+``hyperledger/fabric-orderer``. Rather than pull from Docker Hub, you
 can compile these images locally to ensure they are up to date. It is up
 to the user how to build the images, although a typical approach is
 through vagrant. If you do choose to build through vagrant, make sure
 you have followed the steps outlined in `setting up the development
-environment <dev-setup/devenv.md>`__. Then from the fabric directory
+environment <dev-setup/devenv.html>`__. Then from the fabric directory
 within your vagrant environment, execute the ``make peer-docker`` and
 ``make orderer-docker`` commands.
 
@@ -167,3 +167,7 @@ What does this demonstrate?
    channel - even those that do not have the chaincode installed.
 -  Once the chaincode is installed on a peer, invokes and queries can
    access those states normally.
+
+.. Licensed under Creative Commons Attribution 4.0 International License
+   https://creativecommons.org/licenses/by/4.0/
+

@@ -18,8 +18,8 @@ package gossip
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
+	"time"
 
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/factory"
@@ -33,6 +33,7 @@ import (
 	"github.com/hyperledger/fabric/msp/mgmt"
 	pcommon "github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/utils"
+	"github.com/pkg/errors"
 )
 
 var mcsLogger = flogging.MustGetLogger("peer/gossip/mcs")
@@ -58,7 +59,7 @@ type mspMessageCryptoService struct {
 // 1. a policies.ChannelPolicyManagerGetter that gives access to the policy manager of a given channel via the Manager method.
 // 2. an instance of crypto.LocalSigner
 // 3. an identity deserializer manager
-func NewMCS(channelPolicyManagerGetter policies.ChannelPolicyManagerGetter, localSigner crypto.LocalSigner, deserializer mgmt.DeserializersManager) api.MessageCryptoService {
+func NewMCS(channelPolicyManagerGetter policies.ChannelPolicyManagerGetter, localSigner crypto.LocalSigner, deserializer mgmt.DeserializersManager) *mspMessageCryptoService {
 	return &mspMessageCryptoService{channelPolicyManagerGetter: channelPolicyManagerGetter, localSigner: localSigner, deserializer: deserializer}
 }
 
@@ -166,12 +167,12 @@ func (s *mspMessageCryptoService) VerifyBlock(chainID common.ChainID, seqNum uin
 		return fmt.Errorf("Could not acquire policy manager for channel %s", channelID)
 	}
 	// ok is true if it was the manager requested, or false if it is the default manager
-	mcsLogger.Debugf("Got policy manager for channel [%s] with flag [%s]", channelID, ok)
+	mcsLogger.Debugf("Got policy manager for channel [%s] with flag [%t]", channelID, ok)
 
 	// Get block validation policy
 	policy, ok := cpm.GetPolicy(policies.BlockValidation)
 	// ok is true if it was the policy requested, or false if it is the default policy
-	mcsLogger.Debugf("Got block validation policy for channel [%s] with flag [%s]", channelID, ok)
+	mcsLogger.Debugf("Got block validation policy for channel [%s] with flag [%t]", channelID, ok)
 
 	// - Prepare SignedData
 	signatureSet := []*pcommon.SignedData{}
@@ -240,11 +241,11 @@ func (s *mspMessageCryptoService) VerifyByChannel(chainID common.ChainID, peerId
 	if cpm == nil {
 		return fmt.Errorf("Could not acquire policy manager for channel %s", string(chainID))
 	}
-	mcsLogger.Debugf("Got policy manager for channel [%s] with flag [%s]", string(chainID), flag)
+	mcsLogger.Debugf("Got policy manager for channel [%s] with flag [%t]", string(chainID), flag)
 
 	// Get channel reader policy
 	policy, flag := cpm.GetPolicy(policies.ChannelApplicationReaders)
-	mcsLogger.Debugf("Got reader policy for channel [%s] with flag [%s]", string(chainID), flag)
+	mcsLogger.Debugf("Got reader policy for channel [%s] with flag [%t]", string(chainID), flag)
 
 	return policy.Evaluate(
 		[]*pcommon.SignedData{{
@@ -253,6 +254,15 @@ func (s *mspMessageCryptoService) VerifyByChannel(chainID common.ChainID, peerId
 			Signature: signature,
 		}},
 	)
+}
+
+func (s *mspMessageCryptoService) Expiration(peerIdentity api.PeerIdentityType) (time.Time, error) {
+	id, _, err := s.getValidatedIdentity(peerIdentity)
+	if err != nil {
+		return time.Time{}, errors.Wrap(err, "Unable to extract msp.Identity from peer Identity")
+	}
+	return id.ExpiresAt(), nil
+
 }
 
 func (s *mspMessageCryptoService) getValidatedIdentity(peerIdentity api.PeerIdentityType) (msp.Identity, common.ChainID, error) {

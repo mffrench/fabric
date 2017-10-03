@@ -177,7 +177,7 @@ func processAndWrapQuery(jsonQueryMap map[string]interface{}) {
 		//if the type is an array, then iterate through the items
 		case []interface{}:
 
-			//iterate the the items in the array
+			//iterate the items in the array
 			for itemKey, itemValue := range jsonValueType {
 
 				switch itemValue.(type) {
@@ -222,7 +222,7 @@ func processInterfaceMap(jsonFragment map[string]interface{}) {
 		bufferFragment[keyVal] = itemVal
 	}
 
-	//iterate the the item in the map
+	//iterate the item in the map
 	for keyVal, itemVal := range bufferFragment {
 
 		//check to see if the key is an operator
@@ -252,7 +252,7 @@ func wrapFieldName(jsonFragment map[string]interface{}, key string, value interf
 
 }
 
-//arrayContains is a function to detect if a soure array of strings contains the selected string
+//arrayContains is a function to detect if a source array of strings contains the selected string
 //for this application, it is used to determine if a string is a valid CouchDB operator
 func arrayContains(sourceArray []string, selectItem string) bool {
 	set := make(map[string]struct{}, len(sourceArray))

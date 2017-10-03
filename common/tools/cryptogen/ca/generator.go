@@ -23,6 +23,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"time"
 
@@ -32,7 +33,13 @@ import (
 )
 
 type CA struct {
-	Name string
+	Name               string
+	Country            string
+	Province           string
+	Locality           string
+	OrganizationalUnit string
+	StreetAddress      string
+	PostalCode         string
 	//SignKey  *ecdsa.PrivateKey
 	Signer   crypto.Signer
 	SignCert *x509.Certificate
@@ -40,7 +47,7 @@ type CA struct {
 
 // NewCA creates an instance of CA and saves the signing key pair in
 // baseDir/name
-func NewCA(baseDir, org, name string) (*CA, error) {
+func NewCA(baseDir, org, name, country, province, locality, orgUnit, streetAddress, postalCode string) (*CA, error) {
 
 	var response error
 	var ca *CA
@@ -57,11 +64,13 @@ func NewCA(baseDir, org, name string) (*CA, error) {
 				template := x509Template()
 				//this is a CA
 				template.IsCA = true
-				template.KeyUsage |= x509.KeyUsageCertSign | x509.KeyUsageCRLSign
-				template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageAny, x509.ExtKeyUsageServerAuth}
+				template.KeyUsage |= x509.KeyUsageDigitalSignature |
+					x509.KeyUsageKeyEncipherment | x509.KeyUsageCertSign |
+					x509.KeyUsageCRLSign
+				template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageAny}
 
 				//set the organization for the subject
-				subject := subjectTemplate()
+				subject := subjectTemplateAdditional(country, province, locality, orgUnit, streetAddress, postalCode)
 				subject.Organization = []string{org}
 				subject.CommonName = name
 
@@ -73,9 +82,15 @@ func NewCA(baseDir, org, name string) (*CA, error) {
 				response = err
 				if err == nil {
 					ca = &CA{
-						Name:     name,
-						Signer:   signer,
-						SignCert: x509Cert,
+						Name:               name,
+						Signer:             signer,
+						SignCert:           x509Cert,
+						Country:            country,
+						Province:           province,
+						Locality:           locality,
+						OrganizationalUnit: orgUnit,
+						StreetAddress:      streetAddress,
+						PostalCode:         postalCode,
 					}
 				}
 			}
@@ -86,17 +101,27 @@ func NewCA(baseDir, org, name string) (*CA, error) {
 
 // SignCertificate creates a signed certificate based on a built-in template
 // and saves it in baseDir/name
-func (ca *CA) SignCertificate(baseDir, name string, sans []string, pub *ecdsa.PublicKey) (*x509.Certificate, error) {
+func (ca *CA) SignCertificate(baseDir, name string, sans []string, pub *ecdsa.PublicKey,
+	ku x509.KeyUsage, eku []x509.ExtKeyUsage) (*x509.Certificate, error) {
 
 	template := x509Template()
-	template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+	template.KeyUsage = ku
+	template.ExtKeyUsage = eku
 
 	//set the organization for the subject
-	subject := subjectTemplate()
+	subject := subjectTemplateAdditional(ca.Country, ca.Province, ca.Locality, ca.OrganizationalUnit, ca.StreetAddress, ca.PostalCode)
 	subject.CommonName = name
 
 	template.Subject = subject
-	template.DNSNames = sans
+	for _, san := range sans {
+		// try to parse as an IP address first
+		ip := net.ParseIP(san)
+		if ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		} else {
+			template.DNSNames = append(template.DNSNames, san)
+		}
+	}
 
 	cert, err := genCertificateECDSA(baseDir, name, &template, ca.SignCert,
 		pub, ca.Signer)
@@ -117,27 +142,55 @@ func subjectTemplate() pkix.Name {
 	}
 }
 
+// Additional for X509 subject
+func subjectTemplateAdditional(country, province, locality, orgUnit, streetAddress, postalCode string) pkix.Name {
+	name := subjectTemplate()
+	if len(country) >= 1 {
+		name.Country = []string{country}
+	}
+	if len(province) >= 1 {
+		name.Province = []string{province}
+	}
+
+	if len(locality) >= 1 {
+		name.Locality = []string{locality}
+	}
+	if len(orgUnit) >= 1 {
+		name.OrganizationalUnit = []string{orgUnit}
+	}
+	if len(streetAddress) >= 1 {
+		name.StreetAddress = []string{streetAddress}
+	}
+	if len(postalCode) >= 1 {
+		name.PostalCode = []string{postalCode}
+	}
+	return name
+}
+
 // default template for X509 certificates
 func x509Template() x509.Certificate {
 
-	//generate a serial number
+	// generate a serial number
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
 
-	now := time.Now()
+	// set expiry to around 10 years
+	expiry := 3650 * 24 * time.Hour
+	// backdate 5 min
+	notBefore := time.Now().Add(-5 * time.Minute).UTC()
+
 	//basic template to use
 	x509 := x509.Certificate{
 		SerialNumber:          serialNumber,
-		NotBefore:             now,
-		NotAfter:              now.Add(3650 * 24 * time.Hour), //~ten years
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		NotBefore:             notBefore,
+		NotAfter:              notBefore.Add(expiry).UTC(),
 		BasicConstraintsValid: true,
 	}
 	return x509
 
 }
 
-// generate a signed X509 certficate using ECDSA
+// generate a signed X509 certificate using ECDSA
 func genCertificateECDSA(baseDir, name string, template, parent *x509.Certificate, pub *ecdsa.PublicKey,
 	priv interface{}) (*x509.Certificate, error) {
 

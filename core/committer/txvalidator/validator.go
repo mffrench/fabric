@@ -1,17 +1,7 @@
 /*
 Copyright IBM Corp. 2016 All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-                 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package txvalidator
@@ -86,6 +76,40 @@ type txValidator struct {
 	vscc    vsccValidator
 }
 
+// VSCCInfoLookupFailureError error to indicate inability
+// to obtain VSCC information from LCCC
+type VSCCInfoLookupFailureError struct {
+	reason string
+}
+
+// Error returns reasons which lead to the failure
+func (e VSCCInfoLookupFailureError) Error() string {
+	return e.reason
+}
+
+// VSCCEndorsementPolicyError error to mark transaction
+// failed endrosement policy check
+type VSCCEndorsementPolicyError struct {
+	reason string
+}
+
+// Error returns reasons which lead to the failure
+func (e VSCCEndorsementPolicyError) Error() string {
+	return e.reason
+}
+
+// VSCCExecutionFailureError error to indicate
+// failure during attempt of executing VSCC
+// endorsement policy check
+type VSCCExecutionFailureError struct {
+	reason string
+}
+
+// Error returns reasons which lead to the failure
+func (e VSCCExecutionFailureError) Error() string {
+	return e.reason
+}
+
 var logger *logging.Logger // package-level logger
 
 func init() {
@@ -115,7 +139,7 @@ func (v *txValidator) Validate(block *common.Block) error {
 	txsfltr := ledgerUtil.NewTxValidationFlags(len(block.Data.Data))
 	// txsChaincodeNames records all the invoked chaincodes by tx in a block
 	txsChaincodeNames := make(map[int]*sysccprovider.ChaincodeInstance)
-	// upgradedChaincodes records all the chaincodes that are upgrded in a block
+	// upgradedChaincodes records all the chaincodes that are upgraded in a block
 	txsUpgradedChaincodes := make(map[int]*sysccprovider.ChaincodeInstance)
 	for tIdx, d := range block.Data.Data {
 		if d != nil {
@@ -141,13 +165,13 @@ func (v *txValidator) Validate(block *common.Block) error {
 
 				chdr, err := utils.UnmarshalChannelHeader(payload.Header.ChannelHeader)
 				if err != nil {
-					logger.Warning("Could not unmarshal channel header, err %s, skipping", err)
+					logger.Warningf("Could not unmarshal channel header, err %s, skipping", err)
 					txsfltr.SetFlag(tIdx, peer.TxValidationCode_INVALID_OTHER_REASON)
 					continue
 				}
 
 				channel := chdr.ChannelId
-				logger.Debug("Transaction is for chain %s", channel)
+				logger.Debugf("Transaction is for chain %s", channel)
 
 				if !v.chainExists(channel) {
 					logger.Errorf("Dropping transaction for non-existent chain %s", channel)
@@ -170,8 +194,15 @@ func (v *txValidator) Validate(block *common.Block) error {
 					if err != nil {
 						txID := txID
 						logger.Errorf("VSCCValidateTx for transaction txId = %s returned error %s", txID, err)
-						txsfltr.SetFlag(tIdx, cde)
-						continue
+						switch err.(type) {
+						case *VSCCExecutionFailureError:
+							return err
+						case *VSCCInfoLookupFailureError:
+							return err
+						default:
+							txsfltr.SetFlag(tIdx, cde)
+							continue
+						}
 					}
 
 					invokeCC, upgradeCC, err := v.getTxCCInstance(payload)
@@ -362,15 +393,16 @@ func (v *vsccValidatorImpl) GetInfoForValidate(txid, chID, ccID string) (*sysccp
 	vscc := &sysccprovider.ChaincodeInstance{ChainID: chID}
 	var policy []byte
 	var err error
-	if ccID != "lscc" {
-		// when we are validating any chaincode other than
-		// LSCC, we need to ask LSCC to give us the name
+	if !sysccprovider.GetSystemChaincodeProvider().IsSysCC(ccID) {
+		// when we are validating a chaincode that is not a
+		// system CC, we need to ask the CC to give us the name
 		// of VSCC and of the policy that should be used
 
 		// obtain name of the VSCC and the policy from LSCC
 		cd, err := v.getCDataForCC(ccID)
 		if err != nil {
-			logger.Errorf("Unable to get chaincode data from ledger for txid %s, due to %s", txid, err)
+			msg := fmt.Sprintf("Unable to get chaincode data from ledger for txid %s, due to %s", txid, err)
+			logger.Errorf(msg)
 			return nil, nil, nil, err
 		}
 		cc.ChaincodeName = cd.Name
@@ -378,10 +410,10 @@ func (v *vsccValidatorImpl) GetInfoForValidate(txid, chID, ccID string) (*sysccp
 		vscc.ChaincodeName = cd.Vscc
 		policy = cd.Policy
 	} else {
-		// when we are validating LSCC, we use the default
+		// when we are validating a system CC, we use the default
 		// VSCC and a default policy that requires one signature
 		// from any of the members of the channel
-		cc.ChaincodeName = "lscc"
+		cc.ChaincodeName = ccID
 		cc.ChaincodeVersion = coreUtil.GetSysCCVersion()
 		vscc.ChaincodeName = "vscc"
 		p := cauthdsl.SignedByAnyMember(v.support.GetMSPIDs(chID))
@@ -514,8 +546,12 @@ func (v *vsccValidatorImpl) VSCCValidateTx(payload *common.Payload, envBytes []b
 
 			// do VSCC validation
 			if err = v.VSCCValidateTxForCC(envBytes, chdr.TxId, chdr.ChannelId, vscc.ChaincodeName, vscc.ChaincodeVersion, policy); err != nil {
-				return fmt.Errorf("VSCCValidateTxForCC failed for cc %s, error %s", ccID, err),
-					peer.TxValidationCode_ENDORSEMENT_POLICY_FAILURE
+				switch err.(type) {
+				case *VSCCEndorsementPolicyError:
+					return err, peer.TxValidationCode_ENDORSEMENT_POLICY_FAILURE
+				default:
+					return err, peer.TxValidationCode_INVALID_OTHER_REASON
+				}
 			}
 		}
 	} else {
@@ -541,8 +577,12 @@ func (v *vsccValidatorImpl) VSCCValidateTx(payload *common.Payload, envBytes []b
 		// user creates a new system chaincode which is invokable from the outside
 		// they have to modify VSCC to provide appropriate validation
 		if err = v.VSCCValidateTxForCC(envBytes, chdr.TxId, vscc.ChainID, vscc.ChaincodeName, vscc.ChaincodeVersion, policy); err != nil {
-			return fmt.Errorf("VSCCValidateTxForCC failed for cc %s, error %s", ccID, err),
-				peer.TxValidationCode_ENDORSEMENT_POLICY_FAILURE
+			switch err.(type) {
+			case *VSCCEndorsementPolicyError:
+				return err, peer.TxValidationCode_ENDORSEMENT_POLICY_FAILURE
+			default:
+				return err, peer.TxValidationCode_INVALID_OTHER_REASON
+			}
 		}
 	}
 
@@ -550,10 +590,11 @@ func (v *vsccValidatorImpl) VSCCValidateTx(payload *common.Payload, envBytes []b
 }
 
 func (v *vsccValidatorImpl) VSCCValidateTxForCC(envBytes []byte, txid, chid, vsccName, vsccVer string, policy []byte) error {
-	ctxt, err := v.ccprovider.GetContext(v.support.Ledger())
+	ctxt, err := v.ccprovider.GetContext(v.support.Ledger(), txid)
 	if err != nil {
-		logger.Errorf("Cannot obtain context for txid=%s, err %s", txid, err)
-		return err
+		msg := fmt.Sprintf("Cannot obtain context for txid=%s, err %s", txid, err)
+		logger.Errorf(msg)
+		return &VSCCExecutionFailureError{msg}
 	}
 	defer v.ccprovider.ReleaseContext()
 
@@ -571,12 +612,13 @@ func (v *vsccValidatorImpl) VSCCValidateTxForCC(envBytes []byte, txid, chid, vsc
 	logger.Debug("Invoking VSCC txid", txid, "chaindID", chid)
 	res, _, err := v.ccprovider.ExecuteChaincode(ctxt, cccid, args)
 	if err != nil {
-		logger.Errorf("Invoke VSCC failed for transaction txid=%s, error %s", txid, err)
-		return err
+		msg := fmt.Sprintf("Invoke VSCC failed for transaction txid=%s, error %s", txid, err)
+		logger.Errorf(msg)
+		return &VSCCExecutionFailureError{msg}
 	}
 	if res.Status != shim.OK {
 		logger.Errorf("VSCC check failed for transaction txid=%s, error %s", txid, res.Message)
-		return fmt.Errorf("%s", res.Message)
+		return &VSCCEndorsementPolicyError{fmt.Sprintf("%s", res.Message)}
 	}
 
 	return nil
@@ -596,7 +638,7 @@ func (v *vsccValidatorImpl) getCDataForCC(ccid string) (*ccprovider.ChaincodeDat
 
 	bytes, err := qe.GetState("lscc", ccid)
 	if err != nil {
-		return nil, fmt.Errorf("Could not retrieve state for chaincode %s, error %s", ccid, err)
+		return nil, &VSCCInfoLookupFailureError{fmt.Sprintf("Could not retrieve state for chaincode %s, error %s", ccid, err)}
 	}
 
 	if bytes == nil {

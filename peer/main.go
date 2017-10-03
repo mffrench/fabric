@@ -49,20 +49,16 @@ var mainCmd = &cobra.Command{
 	Use: "peer",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// check for CORE_LOGGING_LEVEL environment variable, which should override
-		// all other log settings
-		loggingSpec := viper.GetString("logging_level")
-
-		if loggingSpec == "" {
-			// if CORE_LOGGING_LEVEL not set, use the value for 'peer' from core.yaml
-			loggingSpec = viper.GetString("logging.peer")
-		}
+		// all other log settings. otherwise, this will use the value for from
+		// core.yaml
+		loggingSpec := viper.GetString("logging.level")
 		flogging.InitFromSpec(loggingSpec)
 
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		if versionFlag {
-			version.Print()
+			fmt.Print(version.GetInfo())
 		} else {
 			cmd.HelpFunc()(cmd, args)
 		}
@@ -110,7 +106,8 @@ func main() {
 	var mspID = viper.GetString("peer.localMspId")
 	err = common.InitCrypto(mspMgrConfigDir, mspID)
 	if err != nil { // Handle errors reading the config file
-		panic(err.Error())
+		logger.Errorf("Cannot run peer because %s", err.Error())
+		os.Exit(1)
 	}
 	// On failure Cobra prints the usage message and error string, so we only
 	// need to exit with a non-0 status

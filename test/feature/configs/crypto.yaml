@@ -14,21 +14,35 @@
 #
 
 OrdererOrgs:
-  - Name: Orderer
+  - Name: ExampleCom
     Domain: example.com
+    CA:
+        Country: US
+        Province: California
+        Locality: San Francisco
     Specs:
-      - Hostname: orderer
+      - Hostname: orderer0
+      - Hostname: orderer1
+      - Hostname: orderer2
 
 PeerOrgs:
-  - Name: Org1
+  - Name: Org1ExampleCom
     Domain: org1.example.com
+    CA:
+        Country: US
+        Province: California
+        Locality: San Francisco
     Template:
       Count: 2
     Users:
       Count: 1
 
-  - Name: Org2
+  - Name: Org2ExampleCom
     Domain: org2.example.com
+    CA:
+        Country: US
+        Province: California
+        Locality: San Francisco
     Template:
       Count: 2
     Users:

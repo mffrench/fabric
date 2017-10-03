@@ -61,14 +61,12 @@ func upgrade2(ctx context.Context, cccid *ccprovider.CCContext,
 		return nil, fmt.Errorf("Error creating lscc spec : %s\n", err)
 	}
 
-	ctx, txsim, err := startTxSimulation(ctx, cccid.ChainID)
+	uuid := util.GenerateUUID()
+	cccid.TxID = uuid
+	ctx, txsim, err := startTxSimulation(ctx, cccid.ChainID, cccid.TxID)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get handle to simulator: %s ", err)
 	}
-
-	uuid := util.GenerateUUID()
-
-	cccid.TxID = uuid
 
 	defer func() {
 		//no error, lets try commit
@@ -126,6 +124,7 @@ func upgrade2(ctx context.Context, cccid *ccprovider.CCContext,
 //     re-initializtion of the same chaincode "mycc"
 //     upgrade when "mycc" is up and running (test version based namespace)
 func TestUpgradeCC(t *testing.T) {
+	testForSkip(t)
 	chainID := util.GetTestChainID()
 
 	lis, err := initPeer(chainID)
@@ -219,6 +218,7 @@ func TestUpgradeCC(t *testing.T) {
 //     upgrade to exampl02 when "mycc" is not deployed
 //     look for "not found" failure
 func TestInvalUpgradeCC(t *testing.T) {
+	testForSkip(t)
 	chainID := util.GetTestChainID()
 
 	lis, err := initPeer(chainID)

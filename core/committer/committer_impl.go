@@ -17,11 +17,13 @@ limitations under the License.
 package committer
 
 import (
+	"fmt"
+
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/core/committer/txvalidator"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/events/producer"
 	"github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/op/go-logging"
 )
 
@@ -40,34 +42,101 @@ func init() {
 // it keeps the reference to the ledger to commit blocks and retrieve
 // chain information
 type LedgerCommitter struct {
-	ledger    ledger.PeerLedger
-	validator txvalidator.Validator
+	ledger  ledger.PeerLedger
+	eventer ConfigBlockEventer
 }
 
+// ConfigBlockEventer callback function proto type to define action
+// upon arrival on new configuaration update block
+type ConfigBlockEventer func(block *common.Block) error
+
 // NewLedgerCommitter is a factory function to create an instance of the committer
-func NewLedgerCommitter(ledger ledger.PeerLedger, validator txvalidator.Validator) *LedgerCommitter {
-	return &LedgerCommitter{ledger: ledger, validator: validator}
+// which passes incoming blocks via validation and commits them into the ledger.
+func NewLedgerCommitter(ledger ledger.PeerLedger) *LedgerCommitter {
+	return NewLedgerCommitterReactive(ledger, func(_ *common.Block) error { return nil })
+}
+
+// NewLedgerCommitterReactive is a factory function to create an instance of the committer
+// same as way as NewLedgerCommitter, while also provides an option to specify callback to
+// be called upon new configuration block arrival and commit event
+func NewLedgerCommitterReactive(ledger ledger.PeerLedger, eventer ConfigBlockEventer) *LedgerCommitter {
+	return &LedgerCommitter{ledger: ledger, eventer: eventer}
 }
 
 // Commit commits block to into the ledger
 // Note, it is important that this always be called serially
 func (lc *LedgerCommitter) Commit(block *common.Block) error {
-	// Validate and mark invalid transactions
-	logger.Debug("Validating block")
-	if err := lc.validator.Validate(block); err != nil {
+	// Do validation and whatever needed before
+	// committing new block
+	if err := lc.preCommit(block); err != nil {
 		return err
 	}
 
-	if err := lc.ledger.Commit(block); err != nil {
+	// Committing new block
+	if err := lc.ledger.CommitWithPvtData(&ledger.BlockAndPvtData{Block: block}); err != nil {
 		return err
 	}
 
-	// send block event *after* the block has been committed
-	if err := producer.SendProducerBlockEvent(block); err != nil {
-		logger.Errorf("Error publishing block %d, because: %v", block.Header.Number, err)
-	}
+	// post commit actions, such as event publishing
+	lc.postCommit(block)
 
 	return nil
+}
+
+// preCommit takes care to validate the block and update based on its
+// content
+func (lc *LedgerCommitter) preCommit(block *common.Block) error {
+	// Updating CSCC with new configuration block
+	if utils.IsConfigBlock(block) {
+		logger.Debug("Received configuration update, calling CSCC ConfigUpdate")
+		if err := lc.eventer(block); err != nil {
+			return fmt.Errorf("Could not update CSCC with new configuration update due to %s", err)
+		}
+	}
+	return nil
+}
+
+// CommitWithPvtData commits blocks atomically with private data
+func (lc *LedgerCommitter) CommitWithPvtData(blockAndPvtData *ledger.BlockAndPvtData) error {
+	// Do validation and whatever needed before
+	// committing new block
+	if err := lc.preCommit(blockAndPvtData.Block); err != nil {
+		return err
+	}
+
+	// TODO: Need to validate the hashes of private data with those in the block
+
+	// Committing new block
+	if err := lc.ledger.CommitWithPvtData(blockAndPvtData); err != nil {
+		return err
+	}
+
+	// post commit actions, such as event publishing
+	lc.postCommit(blockAndPvtData.Block)
+
+	return nil
+}
+
+// GetPvtDataAndBlockByNum retrieves private data and block for given sequence number
+func (lc *LedgerCommitter) GetPvtDataAndBlockByNum(seqNum uint64) (*ledger.BlockAndPvtData, error) {
+	// TODO: Need to create filter based on chaincode collections policies
+	return lc.ledger.GetPvtDataAndBlockByNum(seqNum, nil)
+}
+
+// postCommit publish event or handle other tasks once block committed to the ledger
+func (lc *LedgerCommitter) postCommit(block *common.Block) {
+	// create/send block events *after* the block has been committed
+	bevent, fbevent, channelID, err := producer.CreateBlockEvents(block)
+	if err != nil {
+		logger.Errorf("Channel [%s] Error processing block events for block number [%d]: %s", channelID, block.Header.Number, err)
+	} else {
+		if err := producer.Send(bevent); err != nil {
+			logger.Errorf("Channel [%s] Error sending block event for block number [%d]: %s", channelID, block.Header.Number, err)
+		}
+		if err := producer.Send(fbevent); err != nil {
+			logger.Errorf("Channel [%s] Error sending filtered block event for block number [%d]: %s", channelID, block.Header.Number, err)
+		}
+	}
 }
 
 // LedgerHeight returns recently committed block sequence number
