@@ -101,7 +101,7 @@ func GetDeserializers() map[string]msp.IdentityDeserializer {
 }
 
 // XXXSetMSPManager is a stopgap solution to transition from the custom MSP config block
-// parsing to the configtx.Manager interface, while preserving the problematic singleton
+// parsing to the channelconfig.Resources interface, while preserving the problematic singleton
 // nature of the MSP manager
 func XXXSetMSPManager(chainID string, manager msp.MSPManager) {
 	m.Lock()
@@ -123,16 +123,16 @@ func GetLocalMSP() msp.MSP {
 			var err error
 			created = true
 
-			bccspMSP, err := msp.NewBccspMsp()
+			mspInst, err := msp.New(&msp.BCCSPNewOpts{NewBaseOpts: msp.NewBaseOpts{Version: msp.MSPv1_0}})
 			if err != nil {
 				mspLogger.Fatalf("Failed to initialize local MSP, received err %+v", err)
 			}
 
-			lclMsp, err = cache.New(bccspMSP)
+			lclMsp, err = cache.New(mspInst)
 			if err != nil {
 				mspLogger.Fatalf("Failed to initialize local MSP, received err %+v", err)
 			}
-			localMsp = bccspMSP
+			localMsp = mspInst
 		}
 	}
 

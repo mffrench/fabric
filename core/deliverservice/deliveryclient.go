@@ -17,8 +17,10 @@ import (
 	"github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/core/deliverservice/blocksprovider"
 	"github.com/hyperledger/fabric/gossip/api"
+	"github.com/hyperledger/fabric/gossip/util"
 	"github.com/hyperledger/fabric/protos/orderer"
 	"github.com/op/go-logging"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
 
@@ -28,17 +30,17 @@ func init() {
 	logger = flogging.MustGetLogger("deliveryClient")
 }
 
-var (
-	reConnectTotalTimeThreshold = time.Second * 60 * 5
-	connTimeout                 = time.Second * 3
-	reConnectBackoffThreshold   = float64(time.Hour)
+const (
+	defaultReConnectTotalTimeThreshold = time.Second * 60 * 60
 )
 
-// SetReconnectTotalTimeThreshold sets the total time the delivery service
-// may spend in reconnection attempts until its retry logic gives up
-// and returns an error
-func SetReconnectTotalTimeThreshold(duration time.Duration) {
-	reConnectTotalTimeThreshold = duration
+var (
+	connTimeout               = time.Second * 3
+	reConnectBackoffThreshold = float64(time.Hour)
+)
+
+func getReConnectTotalTimeThreshold() time.Duration {
+	return util.GetDurationOrDefault("peer.deliveryclient.reconnectTotalTimeThreshold", defaultReConnectTotalTimeThreshold)
 }
 
 // DeliverService used to communicate with orderers to obtain
@@ -52,6 +54,9 @@ type DeliverService interface {
 	// StopDeliverForChannel dynamically stops delivery of new blocks from ordering service
 	// to channel peers.
 	StopDeliverForChannel(chainID string) error
+
+	// UpdateEndpoints
+	UpdateEndpoints(chainID string, endpoints []string) error
 
 	// Stop terminates delivery service and closes the connection
 	Stop()
@@ -99,6 +104,17 @@ func NewDeliverService(conf *Config) (DeliverService, error) {
 		return nil, err
 	}
 	return ds, nil
+}
+
+func (d *deliverServiceImpl) UpdateEndpoints(chainID string, endpoints []string) error {
+	// Use chainID to obtain blocks provider and pass endpoints
+	// for update
+	if bp, ok := d.blockProviders[chainID]; ok {
+		// We have found specified channel so we can safely update it
+		bp.UpdateOrderingEndpoints(endpoints)
+		return nil
+	}
+	return errors.New(fmt.Sprintf("Channel with %s id was not found", chainID))
 }
 
 func (d *deliverServiceImpl) validateConfiguration() error {
@@ -190,7 +206,7 @@ func (d *deliverServiceImpl) newClient(chainID string, ledgerInfoProvider blocks
 		return requester.RequestBlocks(ledgerInfoProvider)
 	}
 	backoffPolicy := func(attemptNum int, elapsedTime time.Duration) (time.Duration, bool) {
-		if elapsedTime.Nanoseconds() > reConnectTotalTimeThreshold.Nanoseconds() {
+		if elapsedTime.Nanoseconds() > getReConnectTotalTimeThreshold().Nanoseconds() {
 			return 0, false
 		}
 		sleepIncrement := float64(time.Millisecond * 500)
@@ -205,7 +221,7 @@ func (d *deliverServiceImpl) newClient(chainID string, ledgerInfoProvider blocks
 
 func DefaultConnectionFactory(channelID string) func(endpoint string) (*grpc.ClientConn, error) {
 	return func(endpoint string) (*grpc.ClientConn, error) {
-		dialOpts := []grpc.DialOption{grpc.WithTimeout(connTimeout), grpc.WithBlock()}
+		dialOpts := []grpc.DialOption{grpc.WithBlock()}
 		// set max send/recv msg sizes
 		dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(comm.MaxRecvMsgSize()),
 			grpc.MaxCallSendMsgSize(comm.MaxSendMsgSize())))
@@ -213,7 +229,7 @@ func DefaultConnectionFactory(channelID string) func(endpoint string) (*grpc.Cli
 		dialOpts = append(dialOpts, comm.ClientKeepaliveOptions()...)
 
 		if comm.TLSEnabled() {
-			creds, err := comm.GetCASupport().GetDeliverServiceCredentials(channelID)
+			creds, err := comm.GetCredentialSupport().GetDeliverServiceCredentials(channelID)
 			if err != nil {
 				return nil, fmt.Errorf("Failed obtaining credentials for channel %s: %v", channelID, err)
 			}
@@ -222,7 +238,9 @@ func DefaultConnectionFactory(channelID string) func(endpoint string) (*grpc.Cli
 			dialOpts = append(dialOpts, grpc.WithInsecure())
 		}
 		grpc.EnableTracing = true
-		return grpc.Dial(endpoint, dialOpts...)
+		ctx := context.Background()
+		ctx, _ = context.WithTimeout(ctx, connTimeout)
+		return grpc.DialContext(ctx, endpoint, dialOpts...)
 	}
 }
 

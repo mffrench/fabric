@@ -25,7 +25,7 @@ import (
 
 	"github.com/hyperledger/fabric/common/flogging"
 	cl "github.com/hyperledger/fabric/common/ledger"
-	"github.com/hyperledger/fabric/common/tools/configtxgen/provisional"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/ledger"
 	cb "github.com/hyperledger/fabric/protos/common"
 	ab "github.com/hyperledger/fabric/protos/orderer"
@@ -51,7 +51,7 @@ func initialize(t *testing.T) (*testEnv, *fileLedger) {
 	assert.NoError(t, err, "Error creating temp dir: %s", err)
 
 	flf := New(name).(*fileLedgerFactory)
-	fl, err := flf.GetOrCreate(provisional.TestChainID)
+	fl, err := flf.GetOrCreate(genesisconfig.TestChainID)
 	assert.NoError(t, err, "Error GetOrCreate chain")
 
 	fl.Append(genesisBlock)
@@ -149,12 +149,12 @@ func TestReinitialization(t *testing.T) {
 	defer tev.tearDown()
 
 	// create a block to add to the ledger
-	b1 := ledger.CreateNextBlock(ledger1, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}})
+	b1 := ledger.CreateNextBlock(ledger1, []*cb.Envelope{{Payload: []byte("My Data")}})
 
 	// add the block to the ledger
 	ledger1.Append(b1)
 
-	fl, err := tev.flf.GetOrCreate(provisional.TestChainID)
+	fl, err := tev.flf.GetOrCreate(genesisconfig.TestChainID)
 	ledger1, ok := fl.(*fileLedger)
 	assert.NoError(t, err, "Expected to sucessfully get test chain")
 	assert.Equal(t, 1, len(tev.flf.ChainIDs()), "Exptected not new chain to be created")
@@ -190,7 +190,7 @@ func TestAddition(t *testing.T) {
 	defer tev.tearDown()
 	info, _ := fl.blockStore.GetBlockchainInfo()
 	prevHash := info.CurrentBlockHash
-	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	assert.Equal(t, uint64(2), fl.Height(), "Block height should be 2")
 
 	block := ledger.GetBlock(fl, 1)
@@ -201,7 +201,7 @@ func TestAddition(t *testing.T) {
 func TestRetrieval(t *testing.T) {
 	tev, fl := initialize(t)
 	defer tev.tearDown()
-	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	it, num := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Oldest{}})
 	defer it.Close()
 	assert.Zero(t, num, "Expected genesis block iterator, but got %d", num)
@@ -250,7 +250,7 @@ func TestBlockedRetrieval(t *testing.T) {
 	default:
 	}
 
-	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	select {
 	case <-signal:
 	default:
@@ -266,7 +266,7 @@ func TestBlockedRetrieval(t *testing.T) {
 		"Expected to successfully retrieve the second block but got block number %d", block.Header.Number)
 
 	go func() {
-		fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+		fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	}()
 	select {
 	case <-it.ReadyChan():

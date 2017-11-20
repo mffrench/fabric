@@ -86,6 +86,10 @@ type mockDeserializer struct {
 	fail error
 }
 
+func (md *mockDeserializer) IsWellFormed(_ *mb.SerializedIdentity) error {
+	return nil
+}
+
 func (md *mockDeserializer) DeserializeIdentity(serializedIdentity []byte) (msp.Identity, error) {
 	if md.fail != nil {
 		return nil, md.fail
@@ -180,13 +184,13 @@ func TestNilSignaturePolicyEnvelope(t *testing.T) {
 
 func TestDeduplicate(t *testing.T) {
 	ids := []*cb.SignedData{
-		&cb.SignedData{
+		{
 			Identity: []byte("id1"),
 		},
-		&cb.SignedData{
+		{
 			Identity: []byte("id2"),
 		},
-		&cb.SignedData{
+		{
 			Identity: []byte("id3"),
 		},
 	}

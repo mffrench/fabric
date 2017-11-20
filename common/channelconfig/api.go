@@ -9,7 +9,7 @@ package channelconfig
 import (
 	"time"
 
-	configtxapi "github.com/hyperledger/fabric/common/configtx/api"
+	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/msp"
 	cb "github.com/hyperledger/fabric/protos/common"
@@ -105,16 +105,32 @@ type Orderer interface {
 type ChannelCapabilities interface {
 	// Supported returns an error if there are unknown capabilities in this channel which are required
 	Supported() error
+
+	// MSPVersion specifies the version of the MSP this channel must understand, including the MSP types
+	// and MSP principal types.
+	MSPVersion() msp.MSPVersion
 }
 
 // ApplicationCapabilities defines the capabilities for the application portion of a channel
 type ApplicationCapabilities interface {
 	// Supported returns an error if there are unknown capabilities in this channel which are required
 	Supported() error
+
+	// ForbidDuplicateTXIdInBlock specifies whether two transactions with the same TXId are permitted
+	// in the same block or whether we mark the second one as TxValidationCode_DUPLICATE_TXID
+	ForbidDuplicateTXIdInBlock() bool
 }
 
 // OrdererCapabilities defines the capabilities for the orderer portion of a channel
 type OrdererCapabilities interface {
+	// SetChannelModPolicyDuringCreate specifies whether the v1.0 undesirable behavior of setting the /Channel
+	// group's mod_policy to "" should be fixed or not.
+	SetChannelModPolicyDuringCreate() bool
+
+	// Resubmission specifies whether the v1.0 non-deterministic commitment of tx should be fixed by re-submitting
+	// the re-validated tx.
+	Resubmission() bool
+
 	// Supported returns an error if there are unknown capabilities in this channel which are required
 	Supported() error
 }
@@ -123,8 +139,8 @@ type OrdererCapabilities interface {
 // Depending on whether chain is used at the orderer or at the peer, other
 // config resources may be available
 type Resources interface {
-	// ConfigtxManager returns the configtx.Manager for the channel
-	ConfigtxManager() configtxapi.Manager
+	// ConfigtxValidator returns the configtx.Validator for the channel
+	ConfigtxValidator() configtx.Validator
 
 	// PolicyManager returns the policies.Manager for the channel
 	PolicyManager() policies.Manager

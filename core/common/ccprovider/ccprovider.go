@@ -408,6 +408,37 @@ type ChaincodeData struct {
 	InstantiationPolicy []byte `protobuf:"bytes,8,opt,name=instantiation_policy,proto3"`
 }
 
+// implement functions needed by resourcesconfig.ChaincodeDefinition
+
+// CCName returns the name of this chaincode (the name it was put in the ChaincodeRegistry with).
+func (cd *ChaincodeData) CCName() string {
+	return cd.Name
+}
+
+// Hash returns the hash of the chaincode.
+func (cd *ChaincodeData) Hash() []byte {
+	return cd.Id
+}
+
+// CCVersion returns the version of the chaincode.
+func (cd *ChaincodeData) CCVersion() string {
+	return cd.Version
+}
+
+// Validation returns how to validate transactions for this chaincode.
+// The string returned is the name of the validation method (usually 'vscc')
+// and the bytes returned are the argument to the validation (in the case of
+// 'vscc', this is a marshaled pb.VSCCArgs message).
+func (cd *ChaincodeData) Validation() (string, []byte) {
+	return cd.Vscc, cd.Policy
+}
+
+// Endorsement returns how to endorse proposals for this chaincode.
+// The string returns is the name of the endorsement method (usually 'escc').
+func (cd *ChaincodeData) Endorsement() string {
+	return cd.Escc
+}
+
 //implement functions needed from proto.Message for proto's mar/unmarshal functions
 
 //Reset resets
@@ -424,8 +455,10 @@ func (*ChaincodeData) ProtoMessage() {}
 // chaincode package without importing it; more methods
 // should be added below if necessary
 type ChaincodeProvider interface {
-	// GetContext returns a ledger context
-	GetContext(ledger ledger.PeerLedger, txid string) (context.Context, error)
+	// GetContext returns a ledger context and a tx simulator; it's the
+	// caller's responsability to release the simulator by calling its
+	// done method once it is no longer useful
+	GetContext(ledger ledger.PeerLedger, txid string) (context.Context, ledger.TxSimulator, error)
 	// GetCCContext returns an opaque chaincode context
 	GetCCContext(cid, name, version, txid string, syscc bool, signedProp *pb.SignedProposal, prop *pb.Proposal) interface{}
 	// GetCCValidationInfoFromLSCC returns the VSCC and the policy listed by LSCC for the supplied chaincode
@@ -438,8 +471,6 @@ type ChaincodeProvider interface {
 	ExecuteWithErrorFilter(ctxt context.Context, cccid interface{}, spec interface{}) ([]byte, *pb.ChaincodeEvent, error)
 	// Stop stops the chaincode given context and deployment spec
 	Stop(ctxt context.Context, cccid interface{}, spec *pb.ChaincodeDeploymentSpec) error
-	// ReleaseContext releases the context returned previously by GetContext
-	ReleaseContext()
 }
 
 var ccFactory ChaincodeProviderFactory

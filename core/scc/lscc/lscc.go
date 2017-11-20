@@ -535,7 +535,7 @@ func (lscc *LifeCycleSysCC) checkInstantiationPolicy(stub shim.ChaincodeStubInte
 		return err
 	}
 	// construct signed data we can evaluate the instantiation policy against
-	sd := []*common.SignedData{&common.SignedData{
+	sd := []*common.SignedData{{
 		Data:      signedProp.ProposalBytes,
 		Identity:  shdr.Creator,
 		Signature: signedProp.Signature,
@@ -627,7 +627,7 @@ func (lscc *LifeCycleSysCC) executeUpgrade(stub shim.ChaincodeStubInterface, cha
 	// have deleted it
 	cdbytes, _ := lscc.getCCInstance(stub, chaincodeName)
 	if cdbytes == nil {
-		return nil, NotFoundErr(chainName)
+		return nil, NotFoundErr(chaincodeName)
 	}
 
 	//we need the cd to compare the version

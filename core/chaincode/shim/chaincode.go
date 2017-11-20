@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 // Package shim provides APIs for the chaincode to access its state
@@ -61,6 +51,7 @@ const (
 // APIs.
 type ChaincodeStub struct {
 	TxID           string
+	ChannelId      string
 	chaincodeEvent *pb.ChaincodeEvent
 	args           [][]byte
 	handler        *Handler
@@ -94,15 +85,17 @@ func userChaincodeStreamGetter(name string) (PeerChaincodeStream, error) {
 
 		data, err1 := ioutil.ReadFile(keyPath)
 		if err1 != nil {
-			chaincodeLogger.Errorf("Error trying to read file content %s: %s", keyPath, err1)
-			return nil, fmt.Errorf("Error trying to read file content %s: %s", keyPath, err1)
+			err1 = errors.Wrap(err1, fmt.Sprintf("error trying to read file content %s", keyPath))
+			chaincodeLogger.Errorf("%+v", err1)
+			return nil, err1
 		}
 		key = string(data)
 
 		data, err1 = ioutil.ReadFile(certPath)
 		if err1 != nil {
-			chaincodeLogger.Errorf("Error trying to read file content %s: %s", certPath, err1)
-			return nil, fmt.Errorf("Error trying to read file content %s: %s", certPath, err1)
+			err1 = errors.Wrap(err1, fmt.Sprintf("error trying to read file content %s", certPath))
+			chaincodeLogger.Errorf("%+v", err1)
+			return nil, err1
 		}
 		cert = string(data)
 	}
@@ -114,8 +107,9 @@ func userChaincodeStreamGetter(name string) (PeerChaincodeStream, error) {
 	// Establish connection with validating peer
 	clientConn, err := newPeerClientConnection()
 	if err != nil {
-		chaincodeLogger.Errorf("Error trying to connect to local peer: %s", err)
-		return nil, errors.Wrap(err, "error trying to connect to local peer")
+		err = errors.Wrap(err, "error trying to connect to local peer")
+		chaincodeLogger.Errorf("%+v", err)
+		return nil, err
 	}
 
 	chaincodeLogger.Debugf("os.Args returns: %s", os.Args)
@@ -255,9 +249,9 @@ func getPeerAddress() string {
 func newPeerClientConnection() (*grpc.ClientConn, error) {
 	var peerAddress = getPeerAddress()
 	if comm.TLSEnabled() {
-		return comm.NewClientConnectionWithAddress(peerAddress, true, true, comm.InitTLSForShim(key, cert))
+		return comm.NewChaincodeClientConnectionWithAddress(peerAddress, true, true, comm.InitTLSForShim(key, cert))
 	}
-	return comm.NewClientConnectionWithAddress(peerAddress, true, false, nil)
+	return comm.NewChaincodeClientConnectionWithAddress(peerAddress, true, false, nil)
 }
 
 func chatWithPeer(chaincodename string, stream PeerChaincodeStream, cc Chaincode) error {
@@ -308,14 +302,15 @@ func chatWithPeer(chaincodename string, stream PeerChaincodeStream, cc Chaincode
 				return
 			case in = <-msgAvail:
 				if err == io.EOF {
-					chaincodeLogger.Debugf("Received EOF, ending chaincode stream, %s", err)
+					err = errors.Wrapf(err, "received EOF, ending chaincode stream")
+					chaincodeLogger.Debugf("%+v", err)
 					return
 				} else if err != nil {
-					chaincodeLogger.Errorf("Received error from server: %s, ending chaincode stream", err)
+					chaincodeLogger.Errorf("Received error from server, ending chaincode stream: %+v", err)
 					return
 				} else if in == nil {
 					err = errors.New("received nil message, ending chaincode stream")
-					chaincodeLogger.Debug("Received nil message, ending chaincode stream")
+					chaincodeLogger.Debugf("%+v", err)
 					return
 				}
 				chaincodeLogger.Debugf("[%s]Received message %s from shim", shorttxid(in.Txid), in.Type.String())
@@ -353,8 +348,9 @@ func chatWithPeer(chaincodename string, stream PeerChaincodeStream, cc Chaincode
 // -- init stub ---
 // ChaincodeInvocation functionality
 
-func (stub *ChaincodeStub) init(handler *Handler, txid string, input *pb.ChaincodeInput, signedProposal *pb.SignedProposal) error {
+func (stub *ChaincodeStub) init(handler *Handler, channelId string, txid string, input *pb.ChaincodeInput, signedProposal *pb.SignedProposal) error {
 	stub.TxID = txid
+	stub.ChannelId = channelId
 	stub.args = input.Args
 	stub.handler = handler
 	stub.signedProposal = signedProposal
@@ -386,17 +382,19 @@ func (stub *ChaincodeStub) init(handler *Handler, txid string, input *pb.Chainco
 	return nil
 }
 
-// GetTxID returns the transaction ID
+// GetTxID returns the transaction ID for the proposal
 func (stub *ChaincodeStub) GetTxID() string {
 	return stub.TxID
+}
+
+// GetChannelID returns the channel for the proposal
+func (stub *ChaincodeStub) GetChannelID() string {
+	return stub.ChannelId
 }
 
 func (stub *ChaincodeStub) GetDecorations() map[string][]byte {
 	return stub.decorations
 }
-
-// --------- Security functions ----------
-//CHAINCODE SEC INTERFACE FUNCS TOBE IMPLEMENTED BY ANGELO
 
 // ------------- Call Chaincode functions ---------------
 
@@ -406,14 +404,16 @@ func (stub *ChaincodeStub) InvokeChaincode(chaincodeName string, args [][]byte, 
 	if channel != "" {
 		chaincodeName = chaincodeName + "/" + channel
 	}
-	return stub.handler.handleInvokeChaincode(chaincodeName, args, stub.TxID)
+	return stub.handler.handleInvokeChaincode(chaincodeName, args, stub.ChannelId, stub.TxID)
 }
 
 // --------- State functions ----------
 
 // GetState documentation can be found in interfaces.go
 func (stub *ChaincodeStub) GetState(key string) ([]byte, error) {
-	return stub.handler.handleGetState(key, stub.TxID)
+	// Access public data by setting the collection to empty string
+	collection := ""
+	return stub.handler.handleGetState(collection, key, stub.ChannelId, stub.TxID)
 }
 
 // PutState documentation can be found in interfaces.go
@@ -421,18 +421,34 @@ func (stub *ChaincodeStub) PutState(key string, value []byte) error {
 	if key == "" {
 		return errors.New("key must not be an empty string")
 	}
-	return stub.handler.handlePutState(key, value, stub.TxID)
+	// Access public data by setting the collection to empty string
+	collection := ""
+	return stub.handler.handlePutState(collection, key, value, stub.ChannelId, stub.TxID)
+}
+
+// GetQueryResult documentation can be found in interfaces.go
+func (stub *ChaincodeStub) GetQueryResult(query string) (StateQueryIteratorInterface, error) {
+	// Access public data by setting the collection to empty string
+	collection := ""
+	response, err := stub.handler.handleGetQueryResult(collection, query, stub.ChannelId, stub.TxID)
+	if err != nil {
+		return nil, err
+	}
+	return &StateQueryIterator{CommonIterator: &CommonIterator{stub.handler, stub.ChannelId, stub.TxID, response, 0}}, nil
 }
 
 // DelState documentation can be found in interfaces.go
 func (stub *ChaincodeStub) DelState(key string) error {
-	return stub.handler.handleDelState(key, stub.TxID)
+	// Access public data by setting the collection to empty string
+	collection := ""
+	return stub.handler.handleDelState(collection, key, stub.ChannelId, stub.TxID)
 }
 
 // CommonIterator documentation can be found in interfaces.go
 type CommonIterator struct {
 	handler    *Handler
-	uuid       string
+	channelId  string
+	txid       string
 	response   *pb.QueryResponse
 	currentLoc int
 }
@@ -454,12 +470,12 @@ const (
 	HISTORY_QUERY_RESULT
 )
 
-func (stub *ChaincodeStub) handleGetStateByRange(startKey, endKey string) (StateQueryIteratorInterface, error) {
-	response, err := stub.handler.handleGetStateByRange(startKey, endKey, stub.TxID)
+func (stub *ChaincodeStub) handleGetStateByRange(collection, startKey, endKey string) (StateQueryIteratorInterface, error) {
+	response, err := stub.handler.handleGetStateByRange(collection, startKey, endKey, stub.ChannelId, stub.TxID)
 	if err != nil {
 		return nil, err
 	}
-	return &StateQueryIterator{CommonIterator: &CommonIterator{stub.handler, stub.TxID, response, 0}}, nil
+	return &StateQueryIterator{CommonIterator: &CommonIterator{stub.handler, stub.ChannelId, stub.TxID, response, 0}}, nil
 }
 
 // GetStateByRange documentation can be found in interfaces.go
@@ -470,25 +486,17 @@ func (stub *ChaincodeStub) GetStateByRange(startKey, endKey string) (StateQueryI
 	if err := validateSimpleKeys(startKey, endKey); err != nil {
 		return nil, err
 	}
-	return stub.handleGetStateByRange(startKey, endKey)
-}
-
-// GetQueryResult documentation can be found in interfaces.go
-func (stub *ChaincodeStub) GetQueryResult(query string) (StateQueryIteratorInterface, error) {
-	response, err := stub.handler.handleGetQueryResult(query, stub.TxID)
-	if err != nil {
-		return nil, err
-	}
-	return &StateQueryIterator{CommonIterator: &CommonIterator{stub.handler, stub.TxID, response, 0}}, nil
+	collection := ""
+	return stub.handleGetStateByRange(collection, startKey, endKey)
 }
 
 // GetHistoryForKey documentation can be found in interfaces.go
 func (stub *ChaincodeStub) GetHistoryForKey(key string) (HistoryQueryIteratorInterface, error) {
-	response, err := stub.handler.handleGetHistoryForKey(key, stub.TxID)
+	response, err := stub.handler.handleGetHistoryForKey(key, stub.ChannelId, stub.TxID)
 	if err != nil {
 		return nil, err
 	}
-	return &HistoryQueryIterator{CommonIterator: &CommonIterator{stub.handler, stub.TxID, response, 0}}, nil
+	return &HistoryQueryIterator{CommonIterator: &CommonIterator{stub.handler, stub.ChannelId, stub.TxID, response, 0}}, nil
 }
 
 //CreateCompositeKey documentation can be found in interfaces.go
@@ -560,8 +568,9 @@ func validateSimpleKeys(simpleKeys ...string) error {
 //a partial composite key. For a full composite key, an iter with empty response
 //would be returned.
 func (stub *ChaincodeStub) GetStateByPartialCompositeKey(objectType string, attributes []string) (StateQueryIteratorInterface, error) {
+	collection := ""
 	if partialCompositeKey, err := stub.CreateCompositeKey(objectType, attributes); err == nil {
-		return stub.handleGetStateByRange(partialCompositeKey, partialCompositeKey+string(maxUnicodeRuneValue))
+		return stub.handleGetStateByRange(collection, partialCompositeKey, partialCompositeKey+string(maxUnicodeRuneValue))
 	} else {
 		return nil, err
 	}
@@ -601,7 +610,7 @@ func (iter *CommonIterator) getResultFromBytes(queryResultBytes *pb.QueryResultB
 	if rType == STATE_QUERY_RESULT {
 		stateQueryResult := &queryresult.KV{}
 		if err := proto.Unmarshal(queryResultBytes.ResultBytes, stateQueryResult); err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "error unmarshaling result from bytes")
 		}
 		return stateQueryResult, nil
 
@@ -616,7 +625,7 @@ func (iter *CommonIterator) getResultFromBytes(queryResultBytes *pb.QueryResultB
 }
 
 func (iter *CommonIterator) fetchNextQueryResult() error {
-	if response, err := iter.handler.handleQueryStateNext(iter.response.Id, iter.uuid); err == nil {
+	if response, err := iter.handler.handleQueryStateNext(iter.response.Id, iter.channelId, iter.txid); err == nil {
 		iter.currentLoc = 0
 		iter.response = response
 		return nil
@@ -633,7 +642,7 @@ func (iter *CommonIterator) nextResult(rType resultType) (commonledger.QueryResu
 		// On valid access of an element from cached results
 		queryResult, err := iter.getResultFromBytes(iter.response.Results[iter.currentLoc], rType)
 		if err != nil {
-			chaincodeLogger.Errorf("Failed to decode query results [%s]", err)
+			chaincodeLogger.Errorf("Failed to decode query results: %+v", err)
 			return nil, err
 		}
 		iter.currentLoc++
@@ -641,7 +650,7 @@ func (iter *CommonIterator) nextResult(rType resultType) (commonledger.QueryResu
 		if iter.currentLoc == len(iter.response.Results) && iter.response.HasMore {
 			// On access of last item, pre-fetch to update HasMore flag
 			if err = iter.fetchNextQueryResult(); err != nil {
-				chaincodeLogger.Errorf("Failed to fetch next results [%s]", err)
+				chaincodeLogger.Errorf("Failed to fetch next results: %+v", err)
 				return nil, err
 			}
 		}
@@ -659,7 +668,7 @@ func (iter *CommonIterator) nextResult(rType resultType) (commonledger.QueryResu
 
 // Close documentation can be found in interfaces.go
 func (iter *CommonIterator) Close() error {
-	_, err := iter.handler.handleQueryStateClose(iter.response.Id, iter.uuid)
+	_, err := iter.handler.handleQueryStateClose(iter.response.Id, iter.channelId, iter.txid)
 	return err
 }
 

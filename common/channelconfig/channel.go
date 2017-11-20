@@ -35,6 +35,10 @@ const (
 
 	// GroupKey is the name of the channel group
 	ChannelGroupKey = "Channel"
+
+	// CapabilitiesKey is the name of the key which refers to capabilities, it appears at the channel,
+	// application, and orderer levels and this constant is used for all three.
+	CapabilitiesKey = "Capabilities"
 )
 
 // ChannelValues gives read only access to the channel configuration
@@ -79,8 +83,6 @@ func NewChannelConfig(channelGroup *cb.ConfigGroup) (*ChannelConfig, error) {
 		protos: &ChannelProtos{},
 	}
 
-	mspConfigHandler := NewMSPConfigHandler()
-
 	if err := DeserializeProtoValuesFromGroup(channelGroup, cc.protos); err != nil {
 		return nil, errors.Wrap(err, "failed to deserialize values")
 	}
@@ -88,6 +90,9 @@ func NewChannelConfig(channelGroup *cb.ConfigGroup) (*ChannelConfig, error) {
 	if err := cc.Validate(); err != nil {
 		return nil, err
 	}
+
+	capabilities := cc.Capabilities()
+	mspConfigHandler := NewMSPConfigHandler(capabilities.MSPVersion())
 
 	var err error
 	for groupName, group := range channelGroup.Groups {

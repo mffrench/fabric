@@ -7,12 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 package privdata
 
 import (
+	"fmt"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
 	"github.com/hyperledger/fabric/protos/common"
+	gossip2 "github.com/hyperledger/fabric/protos/gossip"
 	"github.com/hyperledger/fabric/protos/ledger/rwset"
 	"github.com/hyperledger/fabric/protos/ledger/rwset/kvrwset"
+	"github.com/hyperledger/fabric/protos/msp"
 	"github.com/hyperledger/fabric/protos/peer"
 )
 
@@ -27,6 +31,10 @@ type blockFactory struct {
 }
 
 func (bf *blockFactory) AddTxn(txID string, nsName string, hash []byte, collections ...string) *blockFactory {
+	return bf.AddTxnWithEndorsement(txID, nsName, hash, "", collections...)
+}
+
+func (bf *blockFactory) AddTxnWithEndorsement(txID string, nsName string, hash []byte, org string, collections ...string) *blockFactory {
 	txn := &peer.Transaction{
 		Actions: []*peer.TransactionAction{
 			{},
@@ -61,6 +69,16 @@ func (bf *blockFactory) AddTxn(txID string, nsName string, hash []byte, collecti
 		Action: &peer.ChaincodeEndorsedAction{
 			ProposalResponsePayload: respPayloadBytes,
 		},
+	}
+
+	if org != "" {
+		sId := &msp.SerializedIdentity{Mspid: org, IdBytes: []byte(fmt.Sprintf("p0%s", org))}
+		b, _ := proto.Marshal(sId)
+		ccPayload.Action.Endorsements = []*peer.Endorsement{
+			{
+				Endorser: b,
+			},
+		}
 	}
 
 	ccPayloadBytes, err := proto.Marshal(ccPayload)
@@ -175,8 +193,8 @@ func sampleCollHashedRwSet(collectionName string, hash []byte) *rwsetutil.CollHa
 		CollectionName: collectionName,
 		HashedRwSet: &kvrwset.HashedRWSet{
 			HashedReads: []*kvrwset.KVReadHash{
-				{KeyHash: []byte("Key-1-hash"), Version: &kvrwset.Version{1, 2}},
-				{KeyHash: []byte("Key-2-hash"), Version: &kvrwset.Version{2, 3}},
+				{KeyHash: []byte("Key-1-hash"), Version: &kvrwset.Version{BlockNum: 1, TxNum: 2}},
+				{KeyHash: []byte("Key-2-hash"), Version: &kvrwset.Version{BlockNum: 2, TxNum: 3}},
 			},
 			HashedWrites: []*kvrwset.KVWriteHash{
 				{KeyHash: []byte("Key-3-hash"), ValueHash: []byte("value-3-hash"), IsDelete: false},
@@ -220,4 +238,32 @@ func (df *pvtDataFactory) create() []*ledger.TxPvtData {
 		df.data = nil
 	}()
 	return df.data
+}
+
+type digestsAndSourceFactory struct {
+	d2s     dig2sources
+	lastDig *gossip2.PvtDataDigest
+}
+
+func (f *digestsAndSourceFactory) mapDigest(dig *gossip2.PvtDataDigest) *digestsAndSourceFactory {
+	f.lastDig = dig
+	return f
+}
+
+func (f *digestsAndSourceFactory) toSources(peers ...string) *digestsAndSourceFactory {
+	if f.d2s == nil {
+		f.d2s = make(dig2sources)
+	}
+	var endorsements []*peer.Endorsement
+	for _, p := range peers {
+		endorsements = append(endorsements, &peer.Endorsement{
+			Endorser: []byte(p),
+		})
+	}
+	f.d2s[f.lastDig] = endorsements
+	return f
+}
+
+func (f *digestsAndSourceFactory) create() dig2sources {
+	return f.d2s
 }

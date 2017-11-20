@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/resourcesconfig"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	"github.com/hyperledger/fabric/core/common/ccprovider"
@@ -39,8 +40,8 @@ func createCIS(ccname string, args [][]byte) (*pb.ChaincodeInvocationSpec, error
 	return spec, nil
 }
 
-// GetCDSFromLSCC gets chaincode deployment spec from LSCC
-func GetCDSFromLSCC(ctxt context.Context, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chainID string, chaincodeID string) ([]byte, error) {
+// GetCDS retrieves a chaincode deployment spec for the required chaincode
+func GetCDS(ctxt context.Context, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chainID string, chaincodeID string) ([]byte, error) {
 	version := util.GetSysCCVersion()
 	cccid := ccprovider.NewCCContext(chainID, "lscc", version, txid, true, signedProp, prop)
 	res, _, err := ExecuteChaincode(ctxt, cccid, [][]byte{[]byte("getdepspec"), []byte(chainID), []byte(chaincodeID)})
@@ -54,8 +55,8 @@ func GetCDSFromLSCC(ctxt context.Context, txid string, signedProp *pb.SignedProp
 	return res.Payload, nil
 }
 
-// GetChaincodeDataFromLSCC gets chaincode data from LSCC given name
-func GetChaincodeDataFromLSCC(ctxt context.Context, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chainID string, chaincodeID string) (*ccprovider.ChaincodeData, error) {
+// GetChaincodeDefinition returns resourcesconfig.ChaincodeDefinition for the chaincode with the supplied name
+func GetChaincodeDefinition(ctxt context.Context, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chainID string, chaincodeID string) (resourcesconfig.ChaincodeDefinition, error) {
 	version := util.GetSysCCVersion()
 	cccid := ccprovider.NewCCContext(chainID, "lscc", version, txid, true, signedProp, prop)
 	res, _, err := ExecuteChaincode(ctxt, cccid, [][]byte{[]byte("getccdata"), []byte(chainID), []byte(chaincodeID)})
@@ -84,8 +85,9 @@ func ExecuteChaincode(ctxt context.Context, cccid *ccprovider.CCContext, args []
 	spec, err = createCIS(cccid.Name, args)
 	res, ccevent, err = Execute(ctxt, cccid, spec)
 	if err != nil {
-		chaincodeLogger.Errorf("Error executing chaincode: %s", err)
-		return nil, nil, errors.WithMessage(err, "error executing chaincode")
+		err = errors.WithMessage(err, "error executing chaincode")
+		chaincodeLogger.Errorf("%+v", err)
+		return nil, nil, err
 	}
 
 	return res, ccevent, err

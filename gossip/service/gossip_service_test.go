@@ -46,11 +46,19 @@ func init() {
 type mockTransientStore struct {
 }
 
-func (*mockTransientStore) Persist(txid string, endorsementBlkHt uint64, privateSimulationResults *rwset.TxPvtReadWriteSet) error {
+func (*mockTransientStore) PurgeByHeight(maxBlockNumToRetain uint64) error {
+	return nil
+}
+
+func (*mockTransientStore) Persist(txid string, blockHeight uint64, privateSimulationResults *rwset.TxPvtReadWriteSet) error {
 	panic("implement me")
 }
 
 func (*mockTransientStore) GetTxPvtRWSetByTxid(txid string, filter ledger.PvtNsCollFilter) (transientstore.RWSetScanner, error) {
+	panic("implement me")
+}
+
+func (*mockTransientStore) PurgeByTxids(txids []string) error {
 	panic("implement me")
 }
 
@@ -305,6 +313,10 @@ type mockDeliverService struct {
 	running map[string]bool
 }
 
+func (ds *mockDeliverService) UpdateEndpoints(chainID string, endpoints []string) error {
+	panic("implement me")
+}
+
 func (ds *mockDeliverService) StartDeliverForChannel(chainID string, ledgerInfo blocksprovider.LedgerInfo, finalizer func()) error {
 	ds.running[chainID] = true
 	return nil
@@ -320,6 +332,10 @@ func (ds *mockDeliverService) Stop() {
 
 type mockLedgerInfo struct {
 	Height uint64
+}
+
+func (li *mockLedgerInfo) GetPvtDataByNum(blockNum uint64, filter ledger.PvtNsCollFilter) ([]*ledger.TxPvtData, error) {
+	panic("implement me")
 }
 
 func (li *mockLedgerInfo) CommitWithPvtData(blockAndPvtData *ledger.BlockAndPvtData) error {
@@ -783,6 +799,6 @@ func TestChannelConfig(t *testing.T) {
 		},
 	}
 	gService.JoinChan(jcm, gossipCommon.ChainID("A"))
-	gService.configUpdated(mc)
+	gService.updateAnchors(mc)
 	assert.True(t, gService.amIinChannel(string(orgInChannelA), mc))
 }

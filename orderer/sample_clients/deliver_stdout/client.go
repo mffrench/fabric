@@ -14,7 +14,7 @@ import (
 
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/localmsp"
-	"github.com/hyperledger/fabric/common/tools/configtxgen/provisional"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/hyperledger/fabric/common/tools/protolator"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
@@ -85,7 +85,7 @@ func (r *deliverClient) readUntilClose() {
 				fmt.Println("Received block: ")
 				err := protolator.DeepMarshalJSON(os.Stdout, t.Block)
 				if err != nil {
-					fmt.Println("  Error pretty printing block: %s", err)
+					fmt.Printf("  Error pretty printing block: %s", err)
 				}
 			} else {
 				fmt.Println("Received block: ", t.Block.Header.Number)
@@ -112,7 +112,7 @@ func main() {
 	var quiet bool
 
 	flag.StringVar(&serverAddr, "server", fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort), "The RPC server to connect to.")
-	flag.StringVar(&channelID, "channelID", provisional.TestChainID, "The channel ID to deliver from.")
+	flag.StringVar(&channelID, "channelID", genesisconfig.TestChainID, "The channel ID to deliver from.")
 	flag.BoolVar(&quiet, "quiet", false, "Only print the block number, will not attempt to print its block contents.")
 	flag.IntVar(&seek, "seek", -2, "Specify the range of requested blocks."+
 		"Acceptable values:"+

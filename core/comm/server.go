@@ -53,6 +53,9 @@ type GRPCServer interface {
 	//TLSEnabled is a flag indicating whether or not TLS is enabled for this
 	//GRPCServer instance
 	TLSEnabled() bool
+	//MutualTLSRequired is a flag indicating whether or not client certificates
+	//are required for this GRPCServer instance
+	MutualTLSRequired() bool
 	//AppendClientRootCAs appends PEM-encoded X509 certificate authorities to
 	//the list of authorities used to verify client certificates
 	AppendClientRootCAs(clientRoots [][]byte) error
@@ -87,11 +90,31 @@ type grpcServerImpl struct {
 	tlsConfig *tls.Config
 	//Is TLS enabled?
 	tlsEnabled bool
+	//Are client certifictes required
+	mutualTLSRequired bool
 }
 
 //NewGRPCServer creates a new implementation of a GRPCServer given a
-//listen address.
+//listen address
 func NewGRPCServer(address string, secureConfig SecureServerConfig) (GRPCServer, error) {
+	return newGRPCServerWithKa(address, secureConfig, &keepaliveOptions)
+}
+
+//NewChaincodeGRPCServer creates a new implementation of a chaincode GRPCServer given a
+//listen address
+func NewChaincodeGRPCServer(address string, secureConfig SecureServerConfig) (GRPCServer, error) {
+	return newGRPCServerWithKa(address, secureConfig, &chaincodeKeepaliveOptions)
+}
+
+//NewGRPCServerFromListener creates a new implementation of a GRPCServer given
+//an existing net.Listener instance using default keepalive
+func NewGRPCServerFromListener(listener net.Listener, secureConfig SecureServerConfig) (GRPCServer, error) {
+	return newGRPCServerFromListenerWithKa(listener, secureConfig, &keepaliveOptions)
+}
+
+//newGRPCServerWithKa creates a new implementation of a GRPCServer given a
+//listen address with specified keepalive options
+func newGRPCServerWithKa(address string, secureConfig SecureServerConfig, ka *KeepaliveOptions) (GRPCServer, error) {
 
 	if address == "" {
 		return nil, errors.New("Missing address parameter")
@@ -103,14 +126,13 @@ func NewGRPCServer(address string, secureConfig SecureServerConfig) (GRPCServer,
 		return nil, err
 	}
 
-	return NewGRPCServerFromListener(lis, secureConfig)
+	return newGRPCServerFromListenerWithKa(lis, secureConfig, ka)
 
 }
 
-//NewGRPCServerFromListener creates a new implementation of a GRPCServer given
-//an existing net.Listener instance.
-func NewGRPCServerFromListener(listener net.Listener, secureConfig SecureServerConfig) (GRPCServer, error) {
-
+//newGRPCServerFromListenerWithKa creates a new implementation of a GRPCServer given
+//an existing net.Listener instance with specfied keepalive
+func newGRPCServerFromListenerWithKa(listener net.Listener, secureConfig SecureServerConfig, ka *KeepaliveOptions) (GRPCServer, error) {
 	grpcServer := &grpcServerImpl{
 		address:  listener.Addr().String(),
 		listener: listener,
@@ -142,6 +164,7 @@ func NewGRPCServerFromListener(listener net.Listener, secureConfig SecureServerC
 			grpcServer.tlsConfig.ClientAuth = tls.RequestClientCert
 			//check if client authentication is required
 			if secureConfig.RequireClientCert {
+				grpcServer.mutualTLSRequired = true
 				//require TLS client auth
 				grpcServer.tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 				//if we have client root CAs, create a certPool
@@ -169,7 +192,7 @@ func NewGRPCServerFromListener(listener net.Listener, secureConfig SecureServerC
 	serverOpts = append(serverOpts, grpc.MaxSendMsgSize(MaxSendMsgSize()))
 	serverOpts = append(serverOpts, grpc.MaxRecvMsgSize(MaxRecvMsgSize()))
 	// set the keepalive options
-	serverOpts = append(serverOpts, ServerKeepaliveOptions()...)
+	serverOpts = append(serverOpts, serverKeepaliveOptionsWithKa(ka)...)
 
 	grpcServer.server = grpc.NewServer(serverOpts...)
 
@@ -200,6 +223,12 @@ func (gServer *grpcServerImpl) ServerCertificate() tls.Certificate {
 //GRPCServer instance
 func (gServer *grpcServerImpl) TLSEnabled() bool {
 	return gServer.tlsEnabled
+}
+
+//MutualTLSRequired is a flag indicating whether or not client certificates
+//are required for this GRPCServer instance
+func (gServer *grpcServerImpl) MutualTLSRequired() bool {
+	return gServer.mutualTLSRequired
 }
 
 //Start starts the underlying grpc.Server

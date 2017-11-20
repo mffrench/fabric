@@ -21,13 +21,39 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// OrganizationalUnitIdentifiersConfiguration is used to represent an OU
+// and an associated trusted certificate
 type OrganizationalUnitIdentifiersConfiguration struct {
-	Certificate                  string `yaml:"Certificate,omitempty"`
+	// Certificate is the path to a root or intermediate certificate
+	Certificate string `yaml:"Certificate,omitempty"`
+	// OrganizationalUnitIdentifier is the name of the OU
 	OrganizationalUnitIdentifier string `yaml:"OrganizationalUnitIdentifier,omitempty"`
 }
 
+// NodeOUs contains information on how to tell apart clients, peers and orderers
+// based on OUs. If the check is enforced, by setting Enabled to true,
+// the MSP will consider an identity valid if it is an identity of a client, a peer or
+// an orderer. An identity should have only one of these special OUs.
+type NodeOUs struct {
+	// Enable activates the OU enforcement
+	Enable bool `yaml:"Enable,omitempty"`
+	// ClientOUIdentifier specifies how to recognize clients by OU
+	ClientOUIdentifier *OrganizationalUnitIdentifiersConfiguration `yaml:"ClientOUIdentifier,omitempty"`
+	// PeerOUIdentifier specifies how to recognize peers by OU
+	PeerOUIdentifier *OrganizationalUnitIdentifiersConfiguration `yaml:"PeerOUIdentifier,omitempty"`
+	// OrdererOUIdentifier specifies how to recognize orderers by OU
+	OrdererOUIdentifier *OrganizationalUnitIdentifiersConfiguration `yaml:"OrdererOUIdentifier,omitempty"`
+}
+
+// Configuration represents the accessory configuration an MSP can be equipped with.
+// By default, this configuration is stored in a yaml file
 type Configuration struct {
+	// OrganizationalUnitIdentifiers is a list of OUs. If this is set, the MSP
+	// will consider an identity valid only it contains at least one of these OUs
 	OrganizationalUnitIdentifiers []*OrganizationalUnitIdentifiersConfiguration `yaml:"OrganizationalUnitIdentifiers,omitempty"`
+	// NodeOUs enables the MSP to tell apart clients, peers and orderers based
+	// on the identity's OU.
+	NodeOUs *NodeOUs `yaml:"NodeOUs,omitempty"`
 }
 
 func readFile(file string) ([]byte, error) {
@@ -146,8 +172,16 @@ func GetLocalMspConfig(dir string, bccspConfig *factory.FactoryOpts, ID string) 
 	return getMspConfig(dir, ID, sigid)
 }
 
-func GetVerifyingMspConfig(dir string, ID string) (*msp.MSPConfig, error) {
-	return getMspConfig(dir, ID, nil)
+// GetVerifyingMspConfig returns an MSP config given directory, ID and type
+func GetVerifyingMspConfig(dir, ID, mspType string) (*msp.MSPConfig, error) {
+	switch mspType {
+	case ProviderTypeToString(FABRIC):
+		return getMspConfig(dir, ID, nil)
+	case ProviderTypeToString(IDEMIX):
+		return GetIdemixMspConfig(dir, ID)
+	default:
+		return nil, errors.Errorf("unknown MSP type '%s'", mspType)
+	}
 }
 
 func getMspConfig(dir string, ID string, sigid *msp.SigningIdentityInfo) (*msp.MSPConfig, error) {
@@ -204,6 +238,7 @@ func getMspConfig(dir string, ID string, sigid *msp.SigningIdentityInfo) (*msp.M
 	// if the configuration file is there then load it
 	// otherwise skip it
 	var ouis []*msp.FabricOUIdentifier
+	var nodeOUs *msp.FabricNodeOUs
 	_, err = os.Stat(configFile)
 	if err == nil {
 		// load the file, if there is a failure in loading it then
@@ -223,15 +258,66 @@ func getMspConfig(dir string, ID string, sigid *msp.SigningIdentityInfo) (*msp.M
 		if len(configuration.OrganizationalUnitIdentifiers) > 0 {
 			for _, ouID := range configuration.OrganizationalUnitIdentifiers {
 				f := filepath.Join(dir, ouID.Certificate)
-				raw, err = ioutil.ReadFile(f)
+				raw, err = readFile(f)
 				if err != nil {
 					return nil, errors.Wrapf(err, "failed loading OrganizationalUnit certificate at [%s]", f)
 				}
+
 				oui := &msp.FabricOUIdentifier{
 					Certificate:                  raw,
 					OrganizationalUnitIdentifier: ouID.OrganizationalUnitIdentifier,
 				}
 				ouis = append(ouis, oui)
+			}
+		}
+
+		// Prepare NodeOUs
+		if configuration.NodeOUs != nil && configuration.NodeOUs.Enable {
+			mspLogger.Info("Loading NodeOUs")
+			if configuration.NodeOUs.ClientOUIdentifier == nil || len(configuration.NodeOUs.ClientOUIdentifier.OrganizationalUnitIdentifier) == 0 {
+				return nil, errors.New("Failed loading NodeOUs. ClientOU must be different from nil.")
+			}
+			if configuration.NodeOUs.PeerOUIdentifier == nil || len(configuration.NodeOUs.PeerOUIdentifier.OrganizationalUnitIdentifier) == 0 {
+				return nil, errors.New("Failed loading NodeOUs. PeerOU must be different from nil.")
+			}
+			if configuration.NodeOUs.OrdererOUIdentifier == nil || len(configuration.NodeOUs.OrdererOUIdentifier.OrganizationalUnitIdentifier) == 0 {
+				return nil, errors.New("Failed loading NodeOUs. OrdererOU must be different from nil.")
+			}
+
+			nodeOUs = &msp.FabricNodeOUs{
+				Enable:              configuration.NodeOUs.Enable,
+				ClientOUIdentifier:  &msp.FabricOUIdentifier{OrganizationalUnitIdentifier: configuration.NodeOUs.ClientOUIdentifier.OrganizationalUnitIdentifier},
+				PeerOUIdentifier:    &msp.FabricOUIdentifier{OrganizationalUnitIdentifier: configuration.NodeOUs.PeerOUIdentifier.OrganizationalUnitIdentifier},
+				OrdererOUIdentifier: &msp.FabricOUIdentifier{OrganizationalUnitIdentifier: configuration.NodeOUs.OrdererOUIdentifier.OrganizationalUnitIdentifier},
+			}
+
+			// Read certificates, if defined
+
+			// ClientOU
+			f := filepath.Join(dir, configuration.NodeOUs.ClientOUIdentifier.Certificate)
+			raw, err = readFile(f)
+			if err != nil {
+				mspLogger.Infof("Failed loading ClientOU certificate at [%s]: [%s]", f, err)
+			} else {
+				nodeOUs.ClientOUIdentifier.Certificate = raw
+			}
+
+			// PeerOU
+			f = filepath.Join(dir, configuration.NodeOUs.PeerOUIdentifier.Certificate)
+			raw, err = readFile(f)
+			if err != nil {
+				mspLogger.Debugf("Failed loading PeerOU certificate at [%s]: [%s]", f, err)
+			} else {
+				nodeOUs.PeerOUIdentifier.Certificate = raw
+			}
+
+			// OrdererOU
+			f = filepath.Join(dir, configuration.NodeOUs.OrdererOUIdentifier.Certificate)
+			raw, err = readFile(f)
+			if err != nil {
+				mspLogger.Debugf("Failed loading OrdererOU certificate at [%s]: [%s]", f, err)
+			} else {
+				nodeOUs.OrdererOUIdentifier.Certificate = raw
 			}
 		}
 	} else {
@@ -256,6 +342,7 @@ func getMspConfig(dir string, ID string, sigid *msp.SigningIdentityInfo) (*msp.M
 		CryptoConfig:                  cryptoConfig,
 		TlsRootCerts:                  tlsCACerts,
 		TlsIntermediateCerts:          tlsIntermediateCerts,
+		FabricNodeOUs:                 nodeOUs,
 	}
 
 	fmpsjs, _ := proto.Marshal(fmspconf)
@@ -265,23 +352,38 @@ func getMspConfig(dir string, ID string, sigid *msp.SigningIdentityInfo) (*msp.M
 	return mspconf, nil
 }
 
-// IdemixConfig is the filename of the idemix msp config file
-const IdemixConfig = "idemixmspconfig"
+const (
+	IdemixConfigDirMsp              = "msp"
+	IdemixConfigDirUser             = "user"
+	IdemixConfigFileIssuerPublicKey = "IssuerPublicKey"
+	IdemixConfigFileSigner          = "SignerConfig"
+)
 
 // GetIdemixMspConfig returns the configuration for the Idemix MSP
-func GetIdemixMspConfig(dir string) (*msp.MSPConfig, error) {
-	confStringBytes, err := readFile(filepath.Join(dir, IdemixConfig))
+func GetIdemixMspConfig(dir string, ID string) (*msp.MSPConfig, error) {
+	ipkBytes, err := readFile(filepath.Join(dir, IdemixConfigDirMsp, IdemixConfigFileIssuerPublicKey))
 	if err != nil {
-		return nil, errors.Wrapf(err, "error reading idemix config file")
+		return nil, errors.Wrapf(err, "failed to read issuer public key file")
 	}
-	config := &msp.IdemixMSPConfig{}
-	err = proto.UnmarshalText(string(confStringBytes), config)
-	if err != nil {
-		return nil, errors.Wrapf(err, "error unmarshalling idemix config")
+
+	idemixConfig := &msp.IdemixMSPConfig{
+		Name: ID,
+		IPk:  ipkBytes,
 	}
-	confBytes, err := proto.Marshal(config)
+
+	signerBytes, err := readFile(filepath.Join(dir, IdemixConfigDirUser, IdemixConfigFileSigner))
+	if err == nil {
+		signerConfig := &msp.IdemixMSPSignerConfig{}
+		err = proto.Unmarshal(signerBytes, signerConfig)
+		if err != nil {
+			return nil, err
+		}
+		idemixConfig.Signer = signerConfig
+	}
+
+	confBytes, err := proto.Marshal(idemixConfig)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error creating idemix config")
+		return nil, err
 	}
 
 	return &msp.MSPConfig{Config: confBytes, Type: int32(IDEMIX)}, nil

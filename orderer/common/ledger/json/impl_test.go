@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/common/tools/configtxgen/provisional"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/ledger"
 	cb "github.com/hyperledger/fabric/protos/common"
 	ab "github.com/hyperledger/fabric/protos/orderer"
@@ -48,7 +48,7 @@ func initialize(t *testing.T) (*testEnv, *jsonLedger) {
 		t.Fatalf("Error creating temp dir: %s", err)
 	}
 	flf := New(name).(*jsonLedgerFactory)
-	fl, err := flf.GetOrCreate(provisional.TestChainID)
+	fl, err := flf.GetOrCreate(genesisconfig.TestChainID)
 	if err != nil {
 		panic(err)
 	}
@@ -79,7 +79,7 @@ func TestInitialization(t *testing.T) {
 func TestReinitialization(t *testing.T) {
 	tev, ofl := initialize(t)
 	defer tev.tearDown()
-	ofl.Append(ledger.CreateNextBlock(ofl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+	ofl.Append(ledger.CreateNextBlock(ofl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	flf := New(tev.location)
 	chains := flf.ChainIDs()
 	assert.Len(t, chains, 1, "Should have recovered the chain")
@@ -115,7 +115,7 @@ func TestAddition(t *testing.T) {
 	tev, fl := initialize(t)
 	defer tev.tearDown()
 	prevHash := fl.lastHash
-	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	assert.Equal(t, uint64(2), fl.height, "Block height should be 2")
 
 	block, found := fl.readBlock(1)
@@ -127,7 +127,7 @@ func TestAddition(t *testing.T) {
 func TestRetrieval(t *testing.T) {
 	tev, fl := initialize(t)
 	defer tev.tearDown()
-	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{&cb.Envelope{Payload: []byte("My Data")}}))
+	fl.Append(ledger.CreateNextBlock(fl, []*cb.Envelope{{Payload: []byte("My Data")}}))
 	it, num := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Oldest{}})
 	defer it.Close()
 	assert.Equal(t, uint64(0), num, "Expected genesis block iterator, but got %d", num)

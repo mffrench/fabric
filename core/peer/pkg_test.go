@@ -61,9 +61,10 @@ func invokeEmptyCall(address string, dialOptions []grpc.DialOption) (*testpb.Emp
 
 	//add DialOptions
 	dialOptions = append(dialOptions, grpc.WithBlock())
-	dialOptions = append(dialOptions, grpc.WithTimeout(timeout))
+	ctx := context.Background()
+	ctx, _ = context.WithTimeout(ctx, timeout)
 	//create GRPC client conn
-	clientConn, err := grpc.Dial(address, dialOptions...)
+	clientConn, err := grpc.DialContext(ctx, address, dialOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -72,12 +73,12 @@ func invokeEmptyCall(address string, dialOptions []grpc.DialOption) (*testpb.Emp
 	//create GRPC client
 	client := testpb.NewTestServiceClient(clientConn)
 
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx := context.Background()
+	callCtx, cancel := context.WithTimeout(callCtx, timeout)
 	defer cancel()
 
 	//invoke service
-	empty, err := client.EmptyCall(ctx, new(testpb.Empty))
+	empty, err := client.EmptyCall(callCtx, new(testpb.Empty))
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +243,7 @@ func TestUpdateRootsFromConfigBlock(t *testing.T) {
 			createChannel: func() { createChannel("channel1", channel1Block) },
 			goodOptions:   []grpc.DialOption{grpc.WithTransportCredentials(org1Creds)},
 			badOptions:    []grpc.DialOption{grpc.WithTransportCredentials(ordererOrgCreds)},
-			numAppCAs:     2, // each channel also has a DEFAULT MSP
+			numAppCAs:     3, // each channel also has a DEFAULT MSP
 			numOrdererCAs: 1,
 		},
 		{
@@ -260,7 +261,7 @@ func TestUpdateRootsFromConfigBlock(t *testing.T) {
 				grpc.WithTransportCredentials(org2Creds)},
 			badOptions: []grpc.DialOption{
 				grpc.WithTransportCredentials(ordererOrgCreds)},
-			numAppCAs:     4,
+			numAppCAs:     6,
 			numOrdererCAs: 2,
 		},
 		{
@@ -278,7 +279,7 @@ func TestUpdateRootsFromConfigBlock(t *testing.T) {
 				grpc.WithTransportCredentials(org2IntermediateCreds)},
 			badOptions: []grpc.DialOption{
 				grpc.WithTransportCredentials(ordererOrgCreds)},
-			numAppCAs:     7,
+			numAppCAs:     10,
 			numOrdererCAs: 3,
 		},
 	}
@@ -309,7 +310,7 @@ func TestUpdateRootsFromConfigBlock(t *testing.T) {
 				test.createChannel()
 
 				// make sure we have the expected number of CAs
-				appCAs, ordererCAs := comm.GetCASupport().GetClientRootCAs()
+				appCAs, ordererCAs := comm.GetCredentialSupport().GetClientRootCAs()
 				assert.Equal(t, test.numAppCAs, len(appCAs),
 					"Did not find expected number of app CAs for channel")
 				assert.Equal(t, test.numOrdererCAs, len(ordererCAs),

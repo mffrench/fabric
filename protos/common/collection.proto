@@ -13,6 +13,13 @@ option java_package = "org.hyperledger.fabric.protos.common";
 
 package common;
 
+// CollectionConfigPackage represents an array of CollectionConfig
+// messages; the extra struct is required because repeated oneof is
+// forbidden by the protobuf syntax
+message CollectionConfigPackage {
+    repeated CollectionConfig config = 1;
+}
+
 // CollectionConfig defines the configuration of a collection object;
 // it currently contains a single, static type.
 // Dynamic collections are deferred.
@@ -33,6 +40,10 @@ message StaticCollectionConfig {
     // a reference to a policy residing / managed in the config block
     // to define which orgs have access to this collection’s private data
     CollectionPolicyConfig member_orgs_policy = 2;
+    // the minimum number of internal/external peers required to be sent
+    // private data to
+    int32 required_internal_peer_count = 3;
+    int32 required_external_peer_count = 4;
 }
 
 

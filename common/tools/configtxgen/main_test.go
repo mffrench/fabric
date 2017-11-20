@@ -63,7 +63,7 @@ func TestMissingOrdererSection(t *testing.T) {
 	config := genesisconfig.Load(genesisconfig.SampleInsecureSoloProfile)
 	config.Orderer = nil
 
-	assert.Error(t, doOutputBlock(config, "foo", blockDest), "Missing orderer section")
+	assert.Panics(t, func() { doOutputBlock(config, "foo", blockDest) }, "Missing orderer section")
 }
 
 func TestMissingConsortiumValue(t *testing.T) {
@@ -140,4 +140,15 @@ func TestBlockFlags(t *testing.T) {
 
 	_, err := os.Stat(blockDest)
 	assert.NoError(t, err, "Block file is written successfully")
+}
+
+func TestPrintOrg(t *testing.T) {
+	factory.InitFactories(nil)
+	config := genesisconfig.LoadTopLevel()
+
+	assert.NoError(t, doPrintOrg(config, genesisconfig.SampleOrgName), "Good org to print")
+
+	err := doPrintOrg(config, genesisconfig.SampleOrgName+".wrong")
+	assert.Error(t, err, "Bad org name")
+	assert.Regexp(t, "organization [^ ]* not found", err.Error())
 }

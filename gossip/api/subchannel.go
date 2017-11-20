@@ -12,7 +12,7 @@ import "github.com/hyperledger/fabric/gossip/common"
 // or which peers are eligible of receiving a certain message
 type RoutingFilter func(peerIdentity PeerIdentityType) bool
 
-// CollectionCriteria describes a way of selecting peers from a sub-channel
+// SubChannelSelectionCriteria describes a way of selecting peers from a sub-channel
 // given their signatures
 type SubChannelSelectionCriteria func(signature PeerSignature) bool
 

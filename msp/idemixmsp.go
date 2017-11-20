@@ -38,8 +38,8 @@ type idemixmsp struct {
 	name   string
 }
 
-// NewIdemixMsp creates a new instance of idemixmsp
-func NewIdemixMsp() (MSP, error) {
+// newIdemixMsp creates a new instance of idemixmsp
+func newIdemixMsp() (MSP, error) {
 	mspLogger.Debugf("Creating Idemix-based MSP instance")
 
 	msp := idemixmsp{}
@@ -110,17 +110,17 @@ func (msp *idemixmsp) Setup(conf1 *m.MSPConfig) error {
 
 	Nym, RandNym := idemix.MakeNym(sk, msp.ipk, rng)
 	role := &m.MSPRole{
-		msp.name,
-		m.MSPRole_MEMBER,
+		MspIdentifier: msp.name,
+		Role:          m.MSPRole_MEMBER,
 	}
 	if conf.Signer.IsAdmin {
 		role.Role = m.MSPRole_ADMIN
 	}
 
 	ou := &m.OrganizationUnit{
-		msp.name,
-		conf.Signer.OrganizationalUnitIdentifier,
-		nil,
+		MspIdentifier:                msp.name,
+		OrganizationalUnitIdentifier: conf.Signer.OrganizationalUnitIdentifier,
+		CertifiersIdentifier:         ipk.Hash,
 	}
 
 	// Check if credential contains the right amount of attribute values (Role and OU)
@@ -129,20 +129,13 @@ func (msp *idemixmsp) Setup(conf1 *m.MSPConfig) error {
 	}
 
 	// Check if credential contains the correct OU attribute value
-	ouBytes, err := proto.Marshal(ou)
-	if err != nil {
-		return errors.Wrap(err, "Setting up default signer failed")
-	}
+	ouBytes := []byte(conf.Signer.OrganizationalUnitIdentifier)
 	if !bytes.Equal(idemix.BigToBytes(idemix.HashModOrder(ouBytes)), cred.Attrs[0]) {
 		return errors.New("Credential does not contain the correct OU attribute value")
 	}
 
 	// Check if credential contains the correct OU attribute value
-	roleBytes, err := proto.Marshal(role)
-	if err != nil {
-		return errors.Wrap(err, "Setting up default signer failed")
-	}
-	if !bytes.Equal(idemix.BigToBytes(idemix.HashModOrder(roleBytes)), cred.Attrs[1]) {
+	if !bytes.Equal(idemix.BigToBytes(amcl.NewBIGint(int(role.Role))), cred.Attrs[1]) {
 		return errors.New("Credential does not contain the correct Role attribute value")
 	}
 
@@ -152,10 +145,21 @@ func (msp *idemixmsp) Setup(conf1 *m.MSPConfig) error {
 		return errors.Wrap(err, "Credential is not cryptographically valid")
 	}
 
+	// Create the cryptographic evidence that this identity is valid
+	proof, err := idemix.NewSignature(cred, sk, Nym, RandNym, ipk, discloseFlags, nil, rng)
+	if err != nil {
+		return errors.Wrap(err, "Failed to setup cryptographic proof of identity")
+	}
+
 	// Set up default signer
-	msp.signer = &idemixSigningIdentity{newIdemixIdentity(msp, Nym, role, ou), rng, cred, sk, RandNym}
+	msp.signer = &idemixSigningIdentity{newIdemixIdentity(msp, Nym, role, ou, proof), rng, cred, sk, RandNym}
 
 	return nil
+}
+
+// GetVersion returns the version of this MSP
+func (msp *idemixmsp) GetVersion() MSPVersion {
+	return MSPv1_1
 }
 
 func (msp *idemixmsp) GetType() ProviderType {
@@ -216,30 +220,39 @@ func (msp *idemixmsp) deserializeIdentityInternal(serializedID []byte) (Identity
 		return nil, errors.Wrap(err, "cannot deserialize the role of the identity")
 	}
 
-	return newIdemixIdentity(msp, Nym, role, ou), nil
+	proof := &idemix.Signature{}
+	err = proto.Unmarshal(serialized.Proof, proof)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot deserialize the proof of the identity")
+	}
+
+	return newIdemixIdentity(msp, Nym, role, ou, proof), nil
 
 }
 
 func (msp *idemixmsp) Validate(id Identity) error {
 	mspLogger.Infof("Validating identity %s", id)
 
-	// NOTE: in idemix, an identity consists of a pseudonym. Validate checks that this pseudonym could be valid
-	// with respect to this msp, but there is no cryptographic guarantee that a user that can sign wrt this
-	// pseudonym exists.
+	var identity *idemixidentity
 	switch t := id.(type) {
 	case *idemixidentity:
-		if id.(*idemixidentity).GetMSPIdentifier() != msp.name {
-			return errors.Errorf("the supplied identity does not belong to this msp")
-		}
-		return msp.ipk.Check()
+		identity = id.(*idemixidentity)
 	case *idemixSigningIdentity:
-		if id.(*idemixSigningIdentity).GetMSPIdentifier() != msp.name {
-			return errors.Errorf("the supplied identity does not belong to this msp")
-		}
-		return msp.ipk.Check()
+		identity = id.(*idemixSigningIdentity).idemixidentity
 	default:
 		return errors.Errorf("identity type %T is not recognized", t)
 	}
+	if identity.GetMSPIdentifier() != msp.name {
+		return errors.Errorf("the supplied identity does not belong to this msp")
+	}
+	return identity.verifyProof()
+}
+
+func (id *idemixidentity) verifyProof() error {
+	ouBytes := []byte(id.OU.OrganizationalUnitIdentifier)
+	attributeValues := []*amcl.BIG{idemix.HashModOrder(ouBytes), amcl.NewBIGint(int(id.Role.Role))}
+
+	return id.associationProof.Ver(discloseFlags, id.msp.ipk, nil, attributeValues)
 }
 
 func (msp *idemixmsp) SatisfiesPrincipal(id Identity, principal *m.MSPPrincipal) error {
@@ -328,6 +341,18 @@ func (msp *idemixmsp) SatisfiesPrincipal(id Identity, principal *m.MSPPrincipal)
 	}
 }
 
+// IsWellFormed checks if the given identity can be deserialized into its provider-specific .
+// In this MSP implementation, an identity is considered well formed if it contains a
+// marshaled SerializedIdemixIdentity protobuf message.
+func (id *idemixmsp) IsWellFormed(identity *m.SerializedIdentity) error {
+	sId := new(m.SerializedIdemixIdentity)
+	err := proto.Unmarshal(identity.IdBytes, sId)
+	if err != nil {
+		return errors.Wrap(err, "not an idemix identity")
+	}
+	return nil
+}
+
 func (msp *idemixmsp) GetTLSRootCerts() [][]byte {
 	// TODO
 	return nil
@@ -344,15 +369,20 @@ type idemixidentity struct {
 	id   *IdentityIdentifier
 	Role *m.MSPRole
 	OU   *m.OrganizationUnit
+	// associationProof contains cryptographic proof that this identity
+	// belongs to the MSP id.msp, i.e., it proves that the pseudonym
+	// is constructed from a secret key on which the CA issued a credential.
+	associationProof *idemix.Signature
 }
 
-func newIdemixIdentity(msp *idemixmsp, nym *amcl.ECP, role *m.MSPRole, ou *m.OrganizationUnit) *idemixidentity {
+func newIdemixIdentity(msp *idemixmsp, nym *amcl.ECP, role *m.MSPRole, ou *m.OrganizationUnit, proof *idemix.Signature) *idemixidentity {
 	id := &idemixidentity{}
 	id.Nym = nym
 	id.msp = msp
 	id.id = &IdentityIdentifier{Mspid: msp.name, Id: nym.ToString()}
 	id.Role = role
 	id.OU = ou
+	id.associationProof = proof
 	return id
 }
 
@@ -378,7 +408,7 @@ func (id *idemixidentity) GetOrganizationalUnits() []*OUIdentifier {
 		mspIdentityLogger.Errorf("Failed to marshal ipk in GetOrganizationalUnits: %s", err)
 		return nil
 	}
-	return []*OUIdentifier{&OUIdentifier{certifiersIdentifier, id.OU.OrganizationalUnitIdentifier}}
+	return []*OUIdentifier{{certifiersIdentifier, id.OU.OrganizationalUnitIdentifier}}
 }
 
 func (id *idemixidentity) Validate() error {
@@ -391,21 +421,13 @@ func (id *idemixidentity) Verify(msg []byte, sig []byte) error {
 		mspIdentityLogger.Debugf("Verify Idemix sig: sig = %s", hex.Dump(sig))
 	}
 
-	signature := new(idemix.Signature)
+	signature := new(idemix.NymSignature)
 	err := proto.Unmarshal(sig, signature)
 	if err != nil {
 		return errors.Wrap(err, "error unmarshalling signature")
 	}
-	ouBytes, err := proto.Marshal(id.OU)
-	if err != nil {
-		return errors.Wrapf(err, "error marshalling OU of identity %s", id.GetIdentifier())
-	}
-	roleBytes, err := proto.Marshal(id.Role)
-	if err != nil {
-		return errors.Wrapf(err, "error marshalling Role of identity %s", id.GetIdentifier())
-	}
-	attributeValues := []*amcl.BIG{idemix.HashModOrder(ouBytes), idemix.HashModOrder(roleBytes)}
-	return signature.Ver(discloseFlags, id.msp.ipk, msg, attributeValues)
+
+	return signature.Ver(id.Nym, id.msp.ipk, msg)
 }
 
 func (id *idemixidentity) SatisfiesPrincipal(principal *m.MSPPrincipal) error {
@@ -428,6 +450,11 @@ func (id *idemixidentity) Serialize() ([]byte, error) {
 
 	serialized.OU = ouBytes
 	serialized.Role = roleBytes
+
+	serialized.Proof, err = proto.Marshal(id.associationProof)
+	if err != nil {
+		return nil, err
+	}
 
 	idemixIDBytes, err := proto.Marshal(serialized)
 	if err != nil {
@@ -453,7 +480,11 @@ type idemixSigningIdentity struct {
 
 func (id *idemixSigningIdentity) Sign(msg []byte) ([]byte, error) {
 	mspLogger.Debugf("Idemix identity %s is signing", id.GetIdentifier())
-	return proto.Marshal(idemix.NewSignature(id.Cred, id.Sk, id.Nym, id.RandNym, id.msp.ipk, discloseFlags, msg, id.rng))
+	sig, err := idemix.NewNymSignature(id.Sk, id.Nym, id.RandNym, id.msp.ipk, msg, id.rng)
+	if err != nil {
+		return nil, err
+	}
+	return proto.Marshal(sig)
 }
 
 func (id *idemixSigningIdentity) GetPublicVersion() Identity {

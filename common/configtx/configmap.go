@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2017 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-                 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package configtx
@@ -31,6 +21,10 @@ const (
 	PolicyPrefix = "[Policy] " // The plurarility doesn't match, but, it makes the logs much easier being the same length as "Groups" and "Values"
 
 	PathSeparator = "/"
+
+	// Hacky fix constants, used in recurseConfigMap
+	hackyFixOrdererCapabilities = "[Values] /Channel/Orderer/Capabilities"
+	hackyFixNewModPolicy        = "Admins"
 )
 
 // MapConfig is intended to be called outside this file
@@ -129,7 +123,7 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 	newConfigGroup := cb.NewConfigGroup()
 	proto.Merge(newConfigGroup, group.ConfigGroup)
 
-	for key, _ := range group.Groups {
+	for key := range group.Groups {
 		updatedGroup, err := recurseConfigMap(path+PathSeparator+key, configMap)
 		if err != nil {
 			return nil, err
@@ -137,7 +131,7 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 		newConfigGroup.Groups[key] = updatedGroup
 	}
 
-	for key, _ := range group.Values {
+	for key := range group.Values {
 		valuePath := ValuePrefix + path + PathSeparator + key
 		value, ok := configMap[valuePath]
 		if !ok {
@@ -149,7 +143,7 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 		newConfigGroup.Values[key] = proto.Clone(value.ConfigValue).(*cb.ConfigValue)
 	}
 
-	for key, _ := range group.Policies {
+	for key := range group.Policies {
 		policyPath := PolicyPrefix + path + PathSeparator + key
 		policy, ok := configMap[policyPath]
 		if !ok {
@@ -160,6 +154,36 @@ func recurseConfigMap(path string, configMap map[string]comparable) (*cb.ConfigG
 		}
 		newConfigGroup.Policies[key] = proto.Clone(policy.ConfigPolicy).(*cb.ConfigPolicy)
 		logger.Debugf("Setting policy for key %s to %+v", key, group.Policies[key])
+	}
+
+	// This is a really very hacky fix to facilitate upgrading channels which were constructed
+	// using the channel generation from v1.0 with bugs FAB-5309, and FAB-6080.
+	// In summary, these channels were constructed with a bug which left mod_policy unset in some cases.
+	// If mod_policy is unset, it's impossible to modify the element, and current code disallows
+	// unset mod_policy values.  This hack 'fixes' existing config with empty mod_policy values.
+	// If the capabilities framework is on, it sets any unset mod_policy to 'Admins'.
+	// This code needs to sit here until validation of v1.0 chains is deprecated from the codebase.
+	if _, ok := configMap[hackyFixOrdererCapabilities]; ok {
+		// Hacky fix constants, used in recurseConfigMap
+		if newConfigGroup.ModPolicy == "" {
+			logger.Debugf("Performing upgrade of group %s empty mod_policy", groupPath)
+			newConfigGroup.ModPolicy = hackyFixNewModPolicy
+		}
+
+		for key, value := range newConfigGroup.Values {
+			if value.ModPolicy == "" {
+				logger.Debugf("Performing upgrade of value %s empty mod_policy", ValuePrefix+path+PathSeparator+key)
+				value.ModPolicy = hackyFixNewModPolicy
+			}
+		}
+
+		for key, policy := range newConfigGroup.Policies {
+			if policy.ModPolicy == "" {
+				logger.Debugf("Performing upgrade of policy %s empty mod_policy", PolicyPrefix+path+PathSeparator+key)
+
+				policy.ModPolicy = hackyFixNewModPolicy
+			}
+		}
 	}
 
 	return newConfigGroup, nil

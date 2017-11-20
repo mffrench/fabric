@@ -20,6 +20,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/config"
 	"github.com/spf13/viper"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
@@ -28,7 +29,7 @@ import (
 const defaultTimeout = time.Second * 3
 
 var commLogger = flogging.MustGetLogger("comm")
-var caSupport *CASupport
+var credSupport *CredentialSupport
 var once sync.Once
 
 // CASupport type manages certificate authorities scoped by channel
@@ -40,16 +41,24 @@ type CASupport struct {
 	ServerRootCAs         [][]byte
 }
 
-// GetCASupport returns the singleton CASupport instance
-func GetCASupport() *CASupport {
+// CredentialSupport type manages credentials used for gRPC client connections
+type CredentialSupport struct {
+	*CASupport
+	ClientCert tls.Certificate
+}
+
+// GetCredentialSupport returns the singleton CredentialSupport instance
+func GetCredentialSupport() *CredentialSupport {
 
 	once.Do(func() {
-		caSupport = &CASupport{
-			AppRootCAsByChain:     make(map[string][][]byte),
-			OrdererRootCAsByChain: make(map[string][][]byte),
+		credSupport = &CredentialSupport{
+			CASupport: &CASupport{
+				AppRootCAsByChain:     make(map[string][][]byte),
+				OrdererRootCAsByChain: make(map[string][][]byte),
+			},
 		}
 	})
-	return caSupport
+	return credSupport
 }
 
 // GetServerRootCAs returns the PEM-encoded root certificates for all of the
@@ -76,18 +85,44 @@ func (cas *CASupport) GetServerRootCAs() (appRootCAs, ordererRootCAs [][]byte) {
 	return appRootCAs, ordererRootCAs
 }
 
-// GetDeliverServiceCredentials returns GRPC transport credentials for given channel to be used by GRPC
-// clients which communicate with ordering service endpoints.
-// If the channel isn't found, error is returned.
-func (cas *CASupport) GetDeliverServiceCredentials(channelID string) (credentials.TransportCredentials, error) {
+// GetClientRootCAs returns the PEM-encoded root certificates for all of the
+// application and orderer organizations defined for all chains.  The root
+// certificates returned should be used to set the trusted client roots for
+// TLS servers.
+func (cas *CASupport) GetClientRootCAs() (appRootCAs, ordererRootCAs [][]byte) {
 	cas.RLock()
 	defer cas.RUnlock()
 
-	var creds credentials.TransportCredentials
-	var tlsConfig = &tls.Config{}
-	var certPool = x509.NewCertPool()
+	appRootCAs = [][]byte{}
+	ordererRootCAs = [][]byte{}
 
-	rootCACerts, exists := cas.OrdererRootCAsByChain[channelID]
+	for _, appRootCA := range cas.AppRootCAsByChain {
+		appRootCAs = append(appRootCAs, appRootCA...)
+	}
+
+	for _, ordererRootCA := range cas.OrdererRootCAsByChain {
+		ordererRootCAs = append(ordererRootCAs, ordererRootCA...)
+	}
+
+	// also need to append statically configured root certs
+	appRootCAs = append(appRootCAs, cas.ClientRootCAs...)
+	return appRootCAs, ordererRootCAs
+}
+
+// GetDeliverServiceCredentials returns GRPC transport credentials for given channel to be used by GRPC
+// clients which communicate with ordering service endpoints.
+// If the channel isn't found, error is returned.
+func (cs *CredentialSupport) GetDeliverServiceCredentials(channelID string) (credentials.TransportCredentials, error) {
+	cs.RLock()
+	defer cs.RUnlock()
+
+	var creds credentials.TransportCredentials
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cs.ClientCert},
+	}
+	certPool := x509.NewCertPool()
+
+	rootCACerts, exists := cs.OrdererRootCAsByChain[channelID]
 	if !exists {
 		commLogger.Errorf("Attempted to obtain root CA certs of a non existent channel: %s", channelID)
 		return nil, fmt.Errorf("didn't find any root CA certs for channel %s", channelID)
@@ -113,14 +148,14 @@ func (cas *CASupport) GetDeliverServiceCredentials(channelID string) (credential
 
 // GetPeerCredentials returns GRPC transport credentials for use by GRPC
 // clients which communicate with remote peer endpoints.
-func (cas *CASupport) GetPeerCredentials(tlsCert tls.Certificate) credentials.TransportCredentials {
+func (cs *CredentialSupport) GetPeerCredentials() credentials.TransportCredentials {
 	var creds credentials.TransportCredentials
-	var tlsConfig = &tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cs.ClientCert},
 	}
-	var certPool = x509.NewCertPool()
+	certPool := x509.NewCertPool()
 	// loop through the server root CAs
-	roots, _ := cas.GetServerRootCAs()
+	roots, _ := cs.GetServerRootCAs()
 	for _, root := range roots {
 		err := AddPemToCertPool(root, certPool)
 		if err != nil {
@@ -130,30 +165,6 @@ func (cas *CASupport) GetPeerCredentials(tlsCert tls.Certificate) credentials.Tr
 	tlsConfig.RootCAs = certPool
 	creds = credentials.NewTLS(tlsConfig)
 	return creds
-}
-
-// GetClientRootCAs returns the PEM-encoded root certificates for all of the
-// application and orderer organizations defined for all chains.  The root
-// certificates returned should be used to set the trusted client roots for
-// TLS servers.
-func (cas *CASupport) GetClientRootCAs() (appRootCAs, ordererRootCAs [][]byte) {
-	cas.RLock()
-	defer cas.RUnlock()
-
-	appRootCAs = [][]byte{}
-	ordererRootCAs = [][]byte{}
-
-	for _, appRootCA := range cas.AppRootCAsByChain {
-		appRootCAs = append(appRootCAs, appRootCA...)
-	}
-
-	for _, ordererRootCA := range cas.OrdererRootCAsByChain {
-		ordererRootCAs = append(ordererRootCAs, ordererRootCA...)
-	}
-
-	// also need to append statically configured root certs
-	appRootCAs = append(appRootCAs, cas.ClientRootCAs...)
-	return appRootCAs, ordererRootCAs
 }
 
 func getEnv(key, def string) string {
@@ -169,21 +180,45 @@ func GetPeerTestingAddress(port string) string {
 	return getEnv("UNIT_TEST_PEER_IP", "localhost") + ":" + port
 }
 
-// NewClientConnectionWithAddress Returns a new grpc.ClientConn to the given address.
+// NewClientConnectionWithAddress Returns a new grpc.ClientConn to the given address
 func NewClientConnectionWithAddress(peerAddress string, block bool, tslEnabled bool, creds credentials.TransportCredentials) (*grpc.ClientConn, error) {
+	return newClientConnectionWithAddressWithKa(peerAddress, block, tslEnabled, creds, nil)
+}
+
+// NewChaincodeClientConnectionWithAddress Returns a new chaincode type grpc.ClientConn to the given address
+func NewChaincodeClientConnectionWithAddress(peerAddress string, block bool, tslEnabled bool, creds credentials.TransportCredentials) (*grpc.ClientConn, error) {
+	ka := chaincodeKeepaliveOptions
+	//client side's keepalive parameter better be greater than EnforcementPolicies MinTime
+	//to prevent server killing the connection due to timing issues. Just increase by a min
+	ka.ClientKeepaliveTime += 60
+
+	return newClientConnectionWithAddressWithKa(peerAddress, block, tslEnabled, creds, &ka)
+}
+
+// newClientConnectionWithAddressWithKa Returns a new grpc.ClientConn to the given address using specied keepalive options
+func newClientConnectionWithAddressWithKa(peerAddress string, block bool, tslEnabled bool, creds credentials.TransportCredentials, ka *KeepaliveOptions) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
+
+	//preserve old behavior for non chaincode. We probably
+	//want to change this in future to have peer client
+	//send keepalives too
+	if ka != nil {
+		opts = clientKeepaliveOptionsWithKa(ka)
+	}
+
 	if tslEnabled {
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
 		opts = append(opts, grpc.WithInsecure())
 	}
-	opts = append(opts, grpc.WithTimeout(defaultTimeout))
 	if block {
 		opts = append(opts, grpc.WithBlock())
 	}
 	opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxRecvMsgSize()),
 		grpc.MaxCallSendMsgSize(MaxSendMsgSize())))
-	conn, err := grpc.Dial(peerAddress, opts...)
+	ctx := context.Background()
+	ctx, _ = context.WithTimeout(ctx, defaultTimeout)
+	conn, err := grpc.DialContext(ctx, peerAddress, opts...)
 	if err != nil {
 		return nil, err
 	}

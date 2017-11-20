@@ -19,6 +19,7 @@ package config
 import (
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/msp"
 )
 
 func nearIdentityHash(input []byte) []byte {
@@ -64,9 +65,17 @@ func (scm *Channel) Capabilities() channelconfig.ChannelCapabilities {
 type ChannelCapabilities struct {
 	// SupportedErr is returned by Supported()
 	SupportedErr error
+
+	// MSPVersionVal is returned by MSPVersion()
+	MSPVersionVal msp.MSPVersion
 }
 
 // Supported returns SupportedErr
-func (oc *ChannelCapabilities) Supported() error {
-	return oc.SupportedErr
+func (cc *ChannelCapabilities) Supported() error {
+	return cc.SupportedErr
+}
+
+// MSPVersion returns MSPVersionVal
+func (cc *ChannelCapabilities) MSPVersion() msp.MSPVersion {
+	return cc.MSPVersionVal
 }

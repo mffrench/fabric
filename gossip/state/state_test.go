@@ -168,7 +168,11 @@ func (node *peerNode) shutdown() {
 type mockTransientStore struct {
 }
 
-func (*mockTransientStore) Persist(txid string, endorsementBlkHt uint64, privateSimulationResults *rwset.TxPvtReadWriteSet) error {
+func (*mockTransientStore) PurgeByHeight(maxBlockNumToRetain uint64) error {
+	return nil
+}
+
+func (*mockTransientStore) Persist(txid string, blockHeight uint64, privateSimulationResults *rwset.TxPvtReadWriteSet) error {
 	panic("implement me")
 }
 
@@ -176,9 +180,18 @@ func (mockTransientStore) GetTxPvtRWSetByTxid(txid string, filter ledger.PvtNsCo
 	panic("implement me")
 }
 
+func (*mockTransientStore) PurgeByTxids(txids []string) error {
+	panic("implement me")
+}
+
 type mockCommitter struct {
 	mock.Mock
 	sync.Mutex
+}
+
+func (mc *mockCommitter) GetPvtDataByNum(blockNum uint64, filter ledger.PvtNsCollFilter) ([]*ledger.TxPvtData, error) {
+	args := mc.Called(blockNum, filter)
+	return args.Get(0).([]*ledger.TxPvtData), args.Error(1)
 }
 
 func (mc *mockCommitter) CommitWithPvtData(blockAndPvtData *ledger.BlockAndPvtData) error {
@@ -1002,7 +1015,7 @@ func TestGossipStateProvider_TestStateMessages(t *testing.T) {
 		logger.Info("Bootstrap node got message, ", msg)
 		assert.True(t, msg.GetGossipMessage().GetStateRequest() != nil)
 		msg.Respond(&proto.GossipMessage{
-			Content: &proto.GossipMessage_StateResponse{&proto.RemoteStateResponse{nil}},
+			Content: &proto.GossipMessage_StateResponse{StateResponse: &proto.RemoteStateResponse{Payloads: nil}},
 		})
 		wg.Done()
 	}()
@@ -1027,8 +1040,8 @@ func TestGossipStateProvider_TestStateMessages(t *testing.T) {
 	chainID := common.ChainID(util.GetTestChainID())
 
 	peer.g.Send(&proto.GossipMessage{
-		Content: &proto.GossipMessage_StateRequest{&proto.RemoteStateRequest{0, 1}},
-	}, &comm.RemotePeer{peer.g.PeersOfChannel(chainID)[0].Endpoint, peer.g.PeersOfChannel(chainID)[0].PKIid})
+		Content: &proto.GossipMessage_StateRequest{StateRequest: &proto.RemoteStateRequest{StartSeqNum: 0, EndSeqNum: 1}},
+	}, &comm.RemotePeer{Endpoint: peer.g.PeersOfChannel(chainID)[0].Endpoint, PKIID: peer.g.PeersOfChannel(chainID)[0].PKIid})
 	logger.Info("Waiting until peers exchange messages")
 
 	select {
@@ -1318,7 +1331,7 @@ func TestTransferOfPrivateRWSet(t *testing.T) {
 		Nonce:   1,
 		Tag:     proto.GossipMessage_CHAN_OR_ORG,
 		Channel: []byte(chainID),
-		Content: &proto.GossipMessage_StateRequest{&proto.RemoteStateRequest{
+		Content: &proto.GossipMessage_StateRequest{StateRequest: &proto.RemoteStateRequest{
 			StartSeqNum: 2,
 			EndSeqNum:   3,
 		}},

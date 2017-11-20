@@ -30,9 +30,11 @@ import (
 
 	"sort"
 
+	"github.com/hyperledger/fabric/common/metadata"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
 	cutil "github.com/hyperledger/fabric/core/container/util"
 	pb "github.com/hyperledger/fabric/protos/peer"
+	"github.com/spf13/viper"
 )
 
 // Platform for chaincodes written in Go
@@ -448,6 +450,16 @@ func (goPlatform *Platform) GenerateDockerfile(cds *pb.ChaincodeDeploymentSpec) 
 	return dockerFileContents, nil
 }
 
+const staticLDFlagsOpts = "-ldflags \"-linkmode external -extldflags '-static'\""
+const dynamicLDFlagsOpts = ""
+
+func getLDFlagsOpts() string {
+	if viper.GetBool("chaincode.golang.dynamicLink") {
+		return dynamicLDFlagsOpts
+	}
+	return staticLDFlagsOpts
+}
+
 func (goPlatform *Platform) GenerateDockerBuild(cds *pb.ChaincodeDeploymentSpec, tw *tar.Writer) error {
 	spec := cds.ChaincodeSpec
 
@@ -456,12 +468,20 @@ func (goPlatform *Platform) GenerateDockerBuild(cds *pb.ChaincodeDeploymentSpec,
 		return fmt.Errorf("could not decode url: %s", err)
 	}
 
-	const ldflags = "-linkmode external -extldflags '-static'"
+	ldflagsOpt := getLDFlagsOpts()
+	logger.Infof("building chaincode with ldflagsOpt: '%s'", ldflagsOpt)
+
+	var gotags string
+	// check if experimental features are enabled
+	if metadata.Experimental == "true" {
+		gotags = " experimental"
+	}
+	logger.Infof("building chaincode with tags: %s", gotags)
 
 	codepackage := bytes.NewReader(cds.CodePackage)
 	binpackage := bytes.NewBuffer(nil)
 	err = util.DockerBuild(util.DockerBuildOptions{
-		Cmd:          fmt.Sprintf("GOPATH=/chaincode/input:$GOPATH go build -ldflags \"%s\" -o /chaincode/output/chaincode %s", ldflags, pkgname),
+		Cmd:          fmt.Sprintf("GOPATH=/chaincode/input:$GOPATH go build -tags \"%s\" %s -o /chaincode/output/chaincode %s", gotags, ldflagsOpt, pkgname),
 		InputStream:  codepackage,
 		OutputStream: binpackage,
 	})

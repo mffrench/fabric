@@ -9,16 +9,18 @@ package peer
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"sync"
 
 	"github.com/hyperledger/fabric/common/channelconfig"
-	configtxapi "github.com/hyperledger/fabric/common/configtx/api"
+	"github.com/hyperledger/fabric/common/configtx"
 	configtxtest "github.com/hyperledger/fabric/common/configtx/test"
 	"github.com/hyperledger/fabric/common/flogging"
 	mockchannelconfig "github.com/hyperledger/fabric/common/mocks/config"
 	mockconfigtx "github.com/hyperledger/fabric/common/mocks/configtx"
 	mockpolicies "github.com/hyperledger/fabric/common/mocks/policies"
 	"github.com/hyperledger/fabric/common/policies"
+	"github.com/hyperledger/fabric/common/resourcesconfig"
 	"github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/core/committer"
 	"github.com/hyperledger/fabric/core/committer/txvalidator"
@@ -35,6 +37,7 @@ import (
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 )
 
@@ -42,16 +45,17 @@ var peerLogger = flogging.MustGetLogger("peer")
 
 var peerServer comm.GRPCServer
 
-// singleton instance to manage CAs for the peer across channel config changes
-var rootCASupport = comm.GetCASupport()
+// singleton instance to manage credentials for the peer across channel config changes
+var credSupport = comm.GetCredentialSupport()
 
 type gossipSupport struct {
 	channelconfig.Application
-	configtxapi.Manager
+	configtx.Validator
+	channelconfig.Channel
 }
 
 type chainSupport struct {
-	bundleSource *channelconfig.BundleSource
+	bundleSource *resourcesconfig.BundleSource
 	channelconfig.Resources
 	channelconfig.Application
 	ledger ledger.PeerLedger
@@ -74,28 +78,33 @@ func (sp *storeProvider) OpenStore(ledgerID string) (transientstore.Store, error
 }
 
 func (cs *chainSupport) Apply(configtx *common.ConfigEnvelope) error {
-	err := cs.ConfigtxManager().Validate(configtx)
+	err := cs.ConfigtxValidator().Validate(configtx)
 	if err != nil {
 		return err
 	}
 
 	// If the chainSupport is being mocked, this field will be nil
 	if cs.bundleSource != nil {
-		bundle, err := channelconfig.NewBundle(cs.ConfigtxManager().ChainID(), configtx.Config)
+		bundle, err := channelconfig.NewBundle(cs.ConfigtxValidator().ChainID(), configtx.Config)
 		if err != nil {
 			return err
 		}
 
 		channelconfig.LogSanityChecks(bundle)
 
-		err = cs.bundleSource.ValidateNew(bundle)
+		err = cs.bundleSource.ChannelConfig().ValidateNew(bundle)
 		if err != nil {
 			return err
 		}
 
 		capabilitiesSupportedOrPanic(bundle)
 
-		cs.bundleSource.Update(bundle)
+		rBundle, err := cs.bundleSource.NewFromChannelConfig(bundle)
+		if err != nil {
+			return err
+		}
+
+		cs.bundleSource.Update(rBundle)
 	}
 	return nil
 }
@@ -103,15 +112,15 @@ func (cs *chainSupport) Apply(configtx *common.ConfigEnvelope) error {
 func capabilitiesSupportedOrPanic(res channelconfig.Resources) {
 	ac, ok := res.ApplicationConfig()
 	if !ok {
-		peerLogger.Panicf("[channel %s] does not have application config so is incompatible", res.ConfigtxManager().ChainID())
+		peerLogger.Panicf("[channel %s] does not have application config so is incompatible", res.ConfigtxValidator().ChainID())
 	}
 
 	if err := ac.Capabilities().Supported(); err != nil {
-		peerLogger.Panicf("[channel %s] incompatible %s", res.ConfigtxManager(), err)
+		peerLogger.Panicf("[channel %s] incompatible %s", res.ConfigtxValidator(), err)
 	}
 
 	if err := res.ChannelConfig().Capabilities().Supported(); err != nil {
-		peerLogger.Panicf("[channel %s] incompatible %s", res.ConfigtxManager(), err)
+		peerLogger.Panicf("[channel %s] incompatible %s", res.ConfigtxValidator(), err)
 	}
 }
 
@@ -152,10 +161,20 @@ func MockSetMSPIDGetter(mspIDGetter func(string) []string) {
 	mockMSPIDGetter = mspIDGetter
 }
 
+// validationWorkersSemaphore is the semaphore used to ensure that
+// there are not too many concurrent tx validation goroutines
+var validationWorkersSemaphore *semaphore.Weighted
+
 // Initialize sets up any chains that the peer has from the persistence. This
 // function should be called at the start up when the ledger and gossip
 // ready
 func Initialize(init func(string)) {
+	nWorkers := viper.GetInt("peer.validatorPoolSize")
+	if nWorkers <= 0 {
+		nWorkers = runtime.NumCPU()
+	}
+	validationWorkersSemaphore = semaphore.NewWeighted(int64(nWorkers))
+
 	chainInitializer = init
 
 	var cb *common.Block
@@ -245,15 +264,16 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 
 	gossipEventer := service.GetGossipService().NewConfigEventer()
 
-	gossipCallbackWrapper := func(bundle *channelconfig.Bundle) {
-		ac, ok := bundle.ApplicationConfig()
+	gossipCallbackWrapper := func(bundle *resourcesconfig.Bundle) {
+		ac, ok := bundle.ChannelConfig().ApplicationConfig()
 		if !ok {
 			// TODO, handle a missing ApplicationConfig more gracefully
 			ac = nil
 		}
 		gossipEventer.ProcessConfigUpdate(&gossipSupport{
-			Manager:     bundle.ConfigtxManager(),
+			Validator:   bundle.ChannelConfig().ConfigtxValidator(),
 			Application: ac,
+			Channel:     bundle.ChannelConfig().ChannelConfig(),
 		})
 		service.GetGossipService().SuspectPeers(func(identity api.PeerIdentityType) bool {
 			// TODO: this is a place-holder that would somehow make the MSP layer suspect
@@ -264,13 +284,13 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 		})
 	}
 
-	trustedRootsCallbackWrapper := func(bundle *channelconfig.Bundle) {
-		updateTrustedRoots(bundle)
+	trustedRootsCallbackWrapper := func(bundle *resourcesconfig.Bundle) {
+		updateTrustedRoots(bundle.ChannelConfig())
 	}
 
-	mspCallback := func(bundle *channelconfig.Bundle) {
+	mspCallback := func(bundle *resourcesconfig.Bundle) {
 		// TODO remove once all references to mspmgmt are gone from peer code
-		mspmgmt.XXXSetMSPManager(cid, bundle.MSPManager())
+		mspmgmt.XXXSetMSPManager(cid, bundle.ChannelConfig().MSPManager())
 	}
 
 	ac, ok := bundle.ApplicationConfig()
@@ -282,25 +302,34 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 		ledger:      ledger,
 	}
 
-	peerSingletonCallback := func(bundle *channelconfig.Bundle) {
-		ac, ok := bundle.ApplicationConfig()
+	peerSingletonCallback := func(bundle *resourcesconfig.Bundle) {
+		ac, ok := bundle.ChannelConfig().ApplicationConfig()
 		if !ok {
 			ac = nil
 		}
 		cs.Application = ac
+		cs.Resources = bundle.ChannelConfig()
 	}
 
-	bundleSource := channelconfig.NewBundleSource(
-		bundle,
+	// TODO, actually use the seed data from the genesis block to bootstrap the resources config
+	rBundle, err := resourcesconfig.NewBundle(cid, &common.Config{ChannelGroup: &common.ConfigGroup{}}, bundle)
+	if err != nil {
+		return err
+	}
+
+	cs.bundleSource = resourcesconfig.NewBundleSource(
+		rBundle,
 		gossipCallbackWrapper,
 		trustedRootsCallbackWrapper,
 		mspCallback,
 		peerSingletonCallback,
 	)
-	cs.Resources = bundleSource
-	cs.bundleSource = bundleSource
 
-	validator := txvalidator.NewTxValidator(cs)
+	vcs := struct {
+		*chainSupport
+		*semaphore.Weighted
+	}{cs, validationWorkersSemaphore}
+	validator := txvalidator.NewTxValidator(vcs)
 	c := committer.NewLedgerCommitterReactive(ledger, func(block *common.Block) error {
 		chainID, err := utils.GetChainIDFromBlock(block)
 		if err != nil {
@@ -315,11 +344,11 @@ func createChain(cid string, ledger ledger.PeerLedger, cb *common.Block) error {
 	}
 
 	// TODO: does someone need to call Close() on the transientStoreFactory at shutdown of the peer?
-	store, err := transientStoreFactory.OpenStore(bundle.ConfigtxManager().ChainID())
+	store, err := transientStoreFactory.OpenStore(bundle.ConfigtxValidator().ChainID())
 	if err != nil {
-		return errors.Wrapf(err, "Failed opening transient store for %s", bundle.ConfigtxManager().ChainID())
+		return errors.Wrapf(err, "Failed opening transient store for %s", bundle.ConfigtxValidator().ChainID())
 	}
-	service.GetGossipService().InitializeChannel(bundle.ConfigtxManager().ChainID(), ordererAddresses, service.Support{
+	service.GetGossipService().InitializeChannel(bundle.ConfigtxValidator().ChainID(), ordererAddresses, service.Support{
 		Validator: validator,
 		Committer: c,
 		Store:     store,
@@ -374,9 +403,7 @@ func MockCreateChain(cid string) error {
 				PolicyManagerVal: &mockpolicies.Manager{
 					Policy: &mockpolicies.Policy{},
 				},
-				ConfigtxManagerVal: &mockconfigtx.Manager{
-					Initializer: mockconfigtx.Initializer{},
-				},
+				ConfigtxValidatorVal: &mockconfigtx.Validator{},
 			},
 			ledger: ledger},
 	}
@@ -391,6 +418,17 @@ func GetLedger(cid string) ledger.PeerLedger {
 	defer chains.RUnlock()
 	if c, ok := chains.list[cid]; ok {
 		return c.cs.ledger
+	}
+	return nil
+}
+
+// GetChannelConfig returns the channel configuration of the chain with channel ID. Note that this
+// call returns nil if chain cid has not been created.
+func GetChannelConfig(cid string) channelconfig.Resources {
+	chains.RLock()
+	defer chains.RUnlock()
+	if c, ok := chains.list[cid]; ok {
+		return c.cs
 	}
 	return nil
 }
@@ -420,7 +458,7 @@ func GetCurrConfigBlock(cid string) *common.Block {
 // updates the trusted roots for the peer based on updates to channels
 func updateTrustedRoots(cm channelconfig.Resources) {
 	// this is triggered on per channel basis so first update the roots for the channel
-	peerLogger.Debugf("Updating trusted root authorities for channel %s", cm.ConfigtxManager().ChainID())
+	peerLogger.Debugf("Updating trusted root authorities for channel %s", cm.ConfigtxValidator().ChainID())
 	var secureConfig comm.SecureServerConfig
 	var err error
 	// only run is TLS is enabled
@@ -430,9 +468,9 @@ func updateTrustedRoots(cm channelconfig.Resources) {
 
 		// now iterate over all roots for all app and orderer chains
 		trustedRoots := [][]byte{}
-		rootCASupport.RLock()
-		defer rootCASupport.RUnlock()
-		for _, roots := range rootCASupport.AppRootCAsByChain {
+		credSupport.RLock()
+		defer credSupport.RUnlock()
+		for _, roots := range credSupport.AppRootCAsByChain {
 			trustedRoots = append(trustedRoots, roots...)
 		}
 		// also need to append statically configured root certs
@@ -451,7 +489,7 @@ func updateTrustedRoots(cm channelconfig.Resources) {
 				msg := "Failed to update trusted roots for peer from latest config " +
 					"block.  This peer may not be able to communicate " +
 					"with members of channel %s (%s)"
-				peerLogger.Warningf(msg, cm.ConfigtxManager().ChainID(), err)
+				peerLogger.Warningf(msg, cm.ConfigtxValidator().ChainID(), err)
 			}
 		}
 	}
@@ -460,8 +498,8 @@ func updateTrustedRoots(cm channelconfig.Resources) {
 // populates the appRootCAs and orderRootCAs maps by getting the
 // root and intermediate certs for all msps associated with the MSPManager
 func buildTrustedRootsForChain(cm channelconfig.Resources) {
-	rootCASupport.Lock()
-	defer rootCASupport.Unlock()
+	credSupport.Lock()
+	defer credSupport.Unlock()
 
 	appRootCAs := [][]byte{}
 	ordererRootCAs := [][]byte{}
@@ -482,7 +520,7 @@ func buildTrustedRootsForChain(cm channelconfig.Resources) {
 		}
 	}
 
-	cid := cm.ConfigtxManager().ChainID()
+	cid := cm.ConfigtxValidator().ChainID()
 	peerLogger.Debugf("updating root CAs for channel [%s]", cid)
 	msps, err := cm.MSPManager().GetMSPs()
 	if err != nil {
@@ -518,8 +556,8 @@ func buildTrustedRootsForChain(cm channelconfig.Resources) {
 				}
 			}
 		}
-		rootCASupport.AppRootCAsByChain[cid] = appRootCAs
-		rootCASupport.OrdererRootCAsByChain[cid] = ordererRootCAs
+		credSupport.AppRootCAsByChain[cid] = appRootCAs
+		credSupport.OrdererRootCAsByChain[cid] = ordererRootCAs
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/localmsp"
+	"github.com/hyperledger/fabric/common/viperutil"
 	"github.com/hyperledger/fabric/core"
 	"github.com/hyperledger/fabric/core/aclmgmt"
 	"github.com/hyperledger/fabric/core/chaincode"
@@ -43,6 +44,7 @@ import (
 	cb "github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/ledger/rwset"
 	pb "github.com/hyperledger/fabric/protos/peer"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
@@ -142,9 +144,9 @@ func serve(args []string) error {
 
 	if secureConfig.UseTLS {
 		logger.Info("Starting peer with TLS enabled")
-		// set up CA support
-		caSupport := comm.GetCASupport()
-		caSupport.ServerRootCAs = secureConfig.ServerRootCAs
+		// set up credential support
+		cs := comm.GetCredentialSupport()
+		cs.ServerRootCAs = secureConfig.ServerRootCAs
 	}
 
 	//TODO - do we need different SSL material for events ?
@@ -174,14 +176,13 @@ func serve(args []string) error {
 		return service.GetGossipService().DistributePrivateData(channel, txID, privateData)
 	}
 
-	serverEndorser := endorser.NewEndorserServer(privDataDist)
-	libConf := library.Config{
-		AuthFilterFactory: viper.GetString("peer.handlers.authFilter"),
-		DecoratorFactory:  viper.GetString("peer.handlers.decorator"),
+	serverEndorser := endorser.NewEndorserServer(privDataDist, &endorser.SupportImpl{})
+	libConf := library.Config{}
+	if err = viperutil.EnhancedExactUnmarshalKey("peer.handlers", &libConf); err != nil {
+		return errors.WithMessage(err, "could not load YAML config")
 	}
-	auth := library.InitRegistry(libConf).Lookup(library.AuthKey).(authHandler.Filter)
-	auth.Init(serverEndorser)
-
+	authFilters := library.InitRegistry(libConf).Lookup(library.Auth).([]authHandler.Filter)
+	auth := authHandler.ChainFilters(serverEndorser, authFilters...)
 	// Register the Endorser server
 	pb.RegisterEndorserServer(peerServer.Server(), auth)
 
@@ -209,8 +210,8 @@ func serve(args []string) error {
 		dialOpts = append(dialOpts, comm.ClientKeepaliveOptions()...)
 
 		if comm.TLSEnabled() {
-			tlsCert := peerServer.ServerCertificate()
-			dialOpts = append(dialOpts, grpc.WithTransportCredentials(comm.GetCASupport().GetPeerCredentials(tlsCert)))
+			comm.GetCredentialSupport().ClientCert = peerServer.ServerCertificate()
+			dialOpts = append(dialOpts, grpc.WithTransportCredentials(comm.GetCredentialSupport().GetPeerCredentials()))
 		} else {
 			dialOpts = append(dialOpts, grpc.WithInsecure())
 		}
@@ -318,7 +319,7 @@ func createChaincodeServer(caCert []byte, peerHostname string) (comm.GRPCServer,
 		config.ClientRootCAs = append(config.ClientRootCAs, caCert)
 	}
 
-	srv, err = comm.NewGRPCServer(cclistenAddress, config)
+	srv, err = comm.NewChaincodeGRPCServer(cclistenAddress, config)
 	if err != nil {
 		panic(err)
 	}
@@ -384,11 +385,11 @@ func createEventHubServer(secureConfig comm.SecureServerConfig) (comm.GRPCServer
 		logger.Errorf("Failed to return new GRPC server: %s", err)
 		return nil, err
 	}
-	ehServer := producer.NewEventsServer(
-		uint(viper.GetInt("peer.events.buffersize")),
-		viper.GetDuration("peer.events.timeout"))
 
+	ehConfig := &producer.EventsServerConfig{BufferSize: uint(viper.GetInt("peer.events.buffersize")), Timeout: viper.GetDuration("peer.events.timeout"), TimeWindow: viper.GetDuration("peer.events.timewindow")}
+	ehServer := producer.NewEventsServer(ehConfig)
 	pb.RegisterEventsServer(grpcServer.Server(), ehServer)
+
 	return grpcServer, nil
 }
 

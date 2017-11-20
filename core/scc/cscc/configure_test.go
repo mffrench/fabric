@@ -28,6 +28,8 @@ import (
 	"github.com/hyperledger/fabric/common/localmsp"
 	"github.com/hyperledger/fabric/common/mocks/scc"
 	"github.com/hyperledger/fabric/common/policies"
+	"github.com/hyperledger/fabric/common/tools/configtxgen/encoder"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/hyperledger/fabric/core/aclmgmt"
 	aclmocks "github.com/hyperledger/fabric/core/aclmgmt/mocks"
 	"github.com/hyperledger/fabric/core/chaincode"
@@ -55,6 +57,10 @@ import (
 )
 
 type mockDeliveryClient struct {
+}
+
+func (ds *mockDeliveryClient) UpdateEndpoints(chainID string, endpoints []string) error {
+	return nil
 }
 
 // StartDeliverForChannel dynamically starts delivery of new blocks from ordering service
@@ -318,8 +324,11 @@ func TestPeerConfiger_SubmittingOrdererGenesis(t *testing.T) {
 		fmt.Println("Init failed", string(res.Message))
 		t.FailNow()
 	}
-
-	block, err := genesis.NewFactoryImpl(configtxtest.OrdererTemplate()).Block("testChainID")
+	conf := genesisconfig.Load(genesisconfig.SampleSingleMSPSoloProfile)
+	conf.Application = nil
+	cg, err := encoder.NewChannelGroup(conf)
+	assert.NoError(t, err)
+	block, err := genesis.NewFactoryImpl(cg).Block("mytestchainid")
 	assert.NoError(t, err)
 	blockBytes := utils.MarshalOrPanic(block)
 

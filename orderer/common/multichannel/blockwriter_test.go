@@ -22,7 +22,7 @@ import (
 	newchannelconfig "github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto"
 	mockconfigtx "github.com/hyperledger/fabric/common/mocks/configtx"
-	"github.com/hyperledger/fabric/common/tools/configtxgen/provisional"
+	genesisconfig "github.com/hyperledger/fabric/common/tools/configtxgen/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/ledger"
 	cb "github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/utils"
@@ -30,7 +30,7 @@ import (
 )
 
 type mockBlockWriterSupport struct {
-	*mockconfigtx.Manager
+	*mockconfigtx.Validator
 	crypto.LocalSigner
 	ledger.ReadWriter
 }
@@ -47,7 +47,7 @@ func TestCreateBlock(t *testing.T) {
 
 	bw := &BlockWriter{lastBlock: seedBlock}
 	block := bw.CreateNextBlock([]*cb.Envelope{
-		&cb.Envelope{Payload: []byte("some other bytes")},
+		{Payload: []byte("some other bytes")},
 	})
 
 	assert.Equal(t, seedBlock.Header.Number+1, block.Header.Number)
@@ -78,7 +78,7 @@ func TestBlockLastConfig(t *testing.T) {
 	bw := &BlockWriter{
 		support: &mockBlockWriterSupport{
 			LocalSigner: mockCrypto(),
-			Manager: &mockconfigtx.Manager{
+			Validator: &mockconfigtx.Validator{
 				SequenceVal: newConfigSeq,
 			},
 		},
@@ -171,11 +171,11 @@ func TestGoodWriteConfig(t *testing.T) {
 		support: &mockBlockWriterSupport{
 			LocalSigner: mockCrypto(),
 			ReadWriter:  l,
-			Manager:     &mockconfigtx.Manager{},
+			Validator:   &mockconfigtx.Validator{},
 		},
 	}
 
-	ctx := makeConfigTx(provisional.TestChainID, 1)
+	ctx := makeConfigTx(genesisconfig.TestChainID, 1)
 	block := cb.NewBlock(1, genesisBlock.Header.Hash())
 	block.Data.Data = [][]byte{utils.MarshalOrPanic(ctx)}
 	consenterMetadata := []byte("foo")

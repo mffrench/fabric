@@ -11,7 +11,6 @@ import (
 
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
-	configtxapi "github.com/hyperledger/fabric/common/configtx/api"
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/policies"
 	cb "github.com/hyperledger/fabric/protos/common"
@@ -100,7 +99,7 @@ func (s *SystemChannel) ProcessConfigUpdateMsg(envConfigUpdate *cb.Envelope) (co
 		return nil, 0, err
 	}
 
-	newChannelConfigEnv, err := bundle.ConfigtxManager().ProposeConfigUpdate(envConfigUpdate)
+	newChannelConfigEnv, err := bundle.ConfigtxValidator().ProposeConfigUpdate(envConfigUpdate)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -185,8 +184,11 @@ type DefaultTemplatorSupport interface {
 	// ConsortiumsConfig returns the ordering system channel's Consortiums config.
 	ConsortiumsConfig() (channelconfig.Consortiums, bool)
 
-	// ConfigtxManager returns the configtx manager corresponding to the system channel's current config.
-	ConfigtxManager() configtxapi.Manager
+	// OrdererConfig returns the ordering configuration and whether the configuration exists
+	OrdererConfig() (channelconfig.Orderer, bool)
+
+	// ConfigtxValidator returns the configtx manager corresponding to the system channel's current config.
+	ConfigtxValidator() configtx.Validator
 
 	// Signer returns the local signer suitable for signing forwarded messages.
 	Signer() crypto.LocalSigner
@@ -274,7 +276,7 @@ func (dt *DefaultTemplator) NewChannelConfig(envConfigUpdate *cb.Envelope) (chan
 	applicationGroup.ModPolicy = channelconfig.ChannelCreationPolicyKey
 
 	// Get the current system channel config
-	systemChannelGroup := dt.support.ConfigtxManager().ConfigEnvelope().Config.ChannelGroup
+	systemChannelGroup := dt.support.ConfigtxValidator().ConfigProto().ChannelGroup
 
 	// If the consortium group has no members, allow the source request to have no members.  However,
 	// if the consortium group has any members, there must be at least one member in the source request
@@ -313,7 +315,16 @@ func (dt *DefaultTemplator) NewChannelConfig(envConfigUpdate *cb.Envelope) (chan
 	// Set the new config orderer group to the system channel orderer group and the application group to the new application group
 	channelGroup.Groups[channelconfig.OrdererGroupKey] = systemChannelGroup.Groups[channelconfig.OrdererGroupKey]
 	channelGroup.Groups[channelconfig.ApplicationGroupKey] = applicationGroup
-	channelGroup.Values[channelconfig.ConsortiumKey] = channelconfig.TemplateConsortium(consortium.Name).Values[channelconfig.ConsortiumKey]
+	channelGroup.Values[channelconfig.ConsortiumKey] = &cb.ConfigValue{
+		Value:     utils.MarshalOrPanic(channelconfig.ConsortiumValue(consortium.Name).Value()),
+		ModPolicy: channelconfig.AdminsPolicyKey,
+	}
+
+	// Non-backwards compatible bugfix introduced in v1.1
+	// The capability check should be removed once v1.0 is deprecated
+	if oc, ok := dt.support.OrdererConfig(); ok && oc.Capabilities().SetChannelModPolicyDuringCreate() {
+		channelGroup.ModPolicy = systemChannelGroup.ModPolicy
+	}
 
 	bundle, err := channelconfig.NewBundle(channelHeader.ChannelId, &cb.Config{
 		ChannelGroup: channelGroup,

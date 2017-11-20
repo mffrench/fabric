@@ -50,7 +50,7 @@ func Execute(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}
 	cMsg.Decorations = cccid.ProposalDecorations
 
 	var ccMsg *pb.ChaincodeMessage
-	ccMsg, err = createCCMessage(cctyp, cccid.TxID, cMsg)
+	ccMsg, err = createCCMessage(cctyp, cccid.ChainID, cccid.TxID, cMsg)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "failed to create chaincode message")
 	}
@@ -92,7 +92,7 @@ func Execute(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}
 func ExecuteWithErrorFilter(ctxt context.Context, cccid *ccprovider.CCContext, spec interface{}) ([]byte, *pb.ChaincodeEvent, error) {
 	res, event, err := Execute(ctxt, cccid, spec)
 	if err != nil {
-		chaincodeLogger.Errorf("ExecuteWithErrorFilter %s error: %s", cccid.Name, err)
+		chaincodeLogger.Errorf("ExecuteWithErrorFilter %s error: %+v", cccid.Name, err)
 		return nil, nil, err
 	}
 

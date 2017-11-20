@@ -28,11 +28,19 @@ import (
 type transientStoreMock struct {
 }
 
-func (*transientStoreMock) Persist(txid string, endorsementBlkHt uint64, privateSimulationResults *rwset.TxPvtReadWriteSet) error {
+func (*transientStoreMock) PurgeByHeight(maxBlockNumToRetain uint64) error {
+	return nil
+}
+
+func (*transientStoreMock) Persist(txid string, blockHeight uint64, privateSimulationResults *rwset.TxPvtReadWriteSet) error {
 	panic("implement me")
 }
 
-func (transientStoreMock) GetTxPvtRWSetByTxid(txid string, filter ledger.PvtNsCollFilter) (transientstore.RWSetScanner, error) {
+func (*transientStoreMock) GetTxPvtRWSetByTxid(txid string, filter ledger.PvtNsCollFilter) (transientstore.RWSetScanner, error) {
+	panic("implement me")
+}
+
+func (*transientStoreMock) PurgeByTxids(txids []string) error {
 	panic("implement me")
 }
 
@@ -88,7 +96,7 @@ func TestLeaderYield(t *testing.T) {
 	// There isn't any orderer present so the leader peer won't be able to
 	// connect to the orderer, and should relinquish its leadership after a while.
 	// Make sure the other peer declares itself as the leader soon after.
-	deliverclient.SetReconnectTotalTimeThreshold(time.Second * 5)
+	viper.Set("peer.deliveryclient.reconnectTotalTimeThreshold", time.Second*5)
 	viper.Set("peer.gossip.useLeaderElection", true)
 	viper.Set("peer.gossip.orgLeader", false)
 	n := 2
