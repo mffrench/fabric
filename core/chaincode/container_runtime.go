@@ -36,7 +36,9 @@ type ContainerRuntime struct {
 func (c *ContainerRuntime) Build(ccid string) (*ccintf.ChaincodeServerInfo, error) {
 	buildStatus, ok := c.BuildRegistry.BuildStatus(ccid)
 	if !ok {
+		chaincodeLogger.Warningf("Building chaincode %s", ccid)
 		err := c.ContainerRouter.Build(ccid)
+		chaincodeLogger.Warningf("Build done... Notify")
 		buildStatus.Notify(err)
 	}
 	<-buildStatus.Done()
@@ -50,7 +52,7 @@ func (c *ContainerRuntime) Build(ccid string) (*ccintf.ChaincodeServerInfo, erro
 
 // Start launches chaincode in a runtime environment.
 func (c *ContainerRuntime) Start(ccid string, ccinfo *ccintf.PeerConnection) error {
-	chaincodeLogger.Debugf("start container: %s", ccid)
+	chaincodeLogger.Warningf("start container: %s", ccid)
 
 	if err := c.ContainerRouter.Start(ccid, ccinfo); err != nil {
 		return errors.WithMessage(err, "error starting container")

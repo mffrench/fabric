@@ -497,10 +497,12 @@ func (ef *ExternalFunctions) InstallChaincode(chaincodeInstallPackage []byte) (*
 
 	buildStatus, ok := ef.BuildRegistry.BuildStatus(packageID)
 	if !ok {
+		logger.Warningf("Building chaincode from install : %s", packageID)
 		err := ef.ChaincodeBuilder.Build(packageID)
 		buildStatus.Notify(err)
 	}
 	<-buildStatus.Done()
+	logger.Warningf("Building chaincode %s done", packageID)
 	if err := buildStatus.Err(); err != nil {
 		ef.Resources.ChaincodeStore.Delete(packageID)
 		return nil, errors.WithMessage(err, "could not build chaincode")

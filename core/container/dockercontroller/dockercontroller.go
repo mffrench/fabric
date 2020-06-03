@@ -158,6 +158,7 @@ func (vm *DockerVM) buildImage(ccid string, reader io.Reader) error {
 	}
 
 	startTime := time.Now()
+	dockerLogger.Warningf("Build image with opts: %+v", opts)
 	err = vm.Client.BuildImage(opts)
 
 	vm.BuildMetrics.ChaincodeImageBuildDuration.With(
@@ -171,7 +172,7 @@ func (vm *DockerVM) buildImage(ccid string, reader io.Reader) error {
 		return err
 	}
 
-	dockerLogger.Debugf("Created image: %s", id)
+	dockerLogger.Warningf("Created image: %s", id)
 	return nil
 }
 
@@ -288,10 +289,10 @@ func (vm *DockerVM) Start(ccid string, ccType string, peerConnection *ccintf.Pee
 	if err != nil {
 		return errors.WithMessage(err, "could not get args")
 	}
-	dockerLogger.Debugf("start container with args: %s", strings.Join(args, " "))
+	dockerLogger.Warningf("start container with args: %s", strings.Join(args, " "))
 
 	env := vm.GetEnv(ccid, peerConnection.TLSConfig)
-	dockerLogger.Debugf("start container with env:\n\t%s", strings.Join(env, "\n\t"))
+	dockerLogger.Warningf("start container with env:\n\t%s", strings.Join(env, "\n\t"))
 
 	err = vm.createContainer(imageName, containerName, args, env)
 	if err != nil {

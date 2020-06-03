@@ -94,10 +94,13 @@ func (cc *ChaincodeCustodian) Work(buildRegistry *container.BuildRegistry, build
 				logger.Debugf("skipping build of chaincode '%s' as it is already in progress", chore.chaincodeID)
 				continue
 			}
+
+			logger.Warningf("Build chaincode %s", chore.chaincodeID)
 			err := builder.Build(chore.chaincodeID)
 			if err != nil {
 				logger.Warningf("could not build chaincode '%s': %s", chore.chaincodeID, err)
 			}
+			logger.Warningf("Build done... Notify")
 			buildStatus.Notify(err)
 		}
 	}

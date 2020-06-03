@@ -716,7 +716,9 @@ func (lscc *SCC) executeInstall(stub shim.ChaincodeStubInterface, ccbytes []byte
 	ccid := ccpack.GetChaincodeData().Name + ":" + ccpack.GetChaincodeData().Version
 	buildStatus, building := lscc.BuildRegistry.BuildStatus(ccid)
 	if !building {
+		logger.Infof("build chaincode %s", ccid)
 		err := lscc.ChaincodeBuilder.Build(ccid)
+		logger.Infof("build chaincode done... Notify")
 		buildStatus.Notify(err)
 	}
 	<-buildStatus.Done()
