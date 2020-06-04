@@ -7,15 +7,20 @@ SPDX-License-Identifier: Apache-2.0
 package channelconfig
 
 import (
+	"fmt"
+	"io/ioutil"
 	"math"
 
-	"github.com/hyperledger/fabric/bccsp"
-	cb "github.com/hyperledger/fabric/protos/common"
-	mspprotos "github.com/hyperledger/fabric/protos/msp"
-	ab "github.com/hyperledger/fabric/protos/orderer"
-	pb "github.com/hyperledger/fabric/protos/peer"
-
 	"github.com/golang/protobuf/proto"
+	cb "github.com/hyperledger/fabric-protos-go/common"
+	mspprotos "github.com/hyperledger/fabric-protos-go/msp"
+	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
+	pb "github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/bccsp/factory"
+	"github.com/hyperledger/fabric/protoutil"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -104,11 +109,12 @@ func OrdererAddressesValue(addresses []string) *StandardConfigValue {
 
 // ConsensusTypeValue returns the config definition for the orderer consensus type.
 // It is a value for the /Channel/Orderer group.
-func ConsensusTypeValue(consensusType string) *StandardConfigValue {
+func ConsensusTypeValue(consensusType string, consensusMetadata []byte) *StandardConfigValue {
 	return &StandardConfigValue{
 		key: ConsensusTypeKey,
 		value: &ab.ConsensusType{
-			Type: consensusType,
+			Type:     consensusType,
+			Metadata: consensusMetadata,
 		},
 	}
 }
@@ -188,6 +194,17 @@ func CapabilitiesValue(capabilities map[string]bool) *StandardConfigValue {
 	}
 }
 
+// EndpointsValue returns the config definition for the orderer addresses at an org scoped level.
+// It is a value for the /Channel/Orderer/<OrgName> group.
+func EndpointsValue(addresses []string) *StandardConfigValue {
+	return &StandardConfigValue{
+		key: EndpointsKey,
+		value: &cb.OrdererAddresses{
+			Addresses: addresses,
+		},
+	}
+}
+
 // AnchorPeersValue returns the config definition for an org's anchor peers.
 // It is a value for the /Channel/Application/*.
 func AnchorPeersValue(anchorPeers []*pb.AnchorPeer) *StandardConfigValue {
@@ -204,4 +221,111 @@ func ChannelCreationPolicyValue(policy *cb.Policy) *StandardConfigValue {
 		key:   ChannelCreationPolicyKey,
 		value: policy,
 	}
+}
+
+// ACLValues returns the config definition for an applications resources based ACL definitions.
+// It is a value for the /Channel/Application/.
+func ACLValues(acls map[string]string) *StandardConfigValue {
+	a := &pb.ACLs{
+		Acls: make(map[string]*pb.APIResource),
+	}
+
+	for apiResource, policyRef := range acls {
+		a.Acls[apiResource] = &pb.APIResource{PolicyRef: policyRef}
+	}
+
+	return &StandardConfigValue{
+		key:   ACLsKey,
+		value: a,
+	}
+}
+
+// ValidateCapabilities validates whether the peer can meet the capabilities requirement in the given config block
+func ValidateCapabilities(block *cb.Block, bccsp bccsp.BCCSP) error {
+	cc, err := extractChannelConfig(block, bccsp)
+	if err != nil {
+		return err
+	}
+	// Check the channel top-level capabilities
+	if err := cc.Capabilities().Supported(); err != nil {
+		return err
+	}
+
+	// Check the application capabilities
+	return cc.ApplicationConfig().Capabilities().Supported()
+}
+
+// ExtractMSPIDsForApplicationOrgs extracts MSPIDs for application organizations
+func ExtractMSPIDsForApplicationOrgs(block *cb.Block, bccsp bccsp.BCCSP) ([]string, error) {
+	cc, err := extractChannelConfig(block, factory.GetDefault())
+	if err != nil {
+		return nil, err
+	}
+
+	if cc.ApplicationConfig() == nil {
+		return nil, errors.Errorf("could not get application config for the channel")
+	}
+	orgs := cc.ApplicationConfig().Organizations()
+	mspids := make([]string, 0, len(orgs))
+	for _, org := range orgs {
+		mspids = append(mspids, org.MSPID())
+	}
+	return mspids, nil
+}
+
+func extractChannelConfig(block *cb.Block, bccsp bccsp.BCCSP) (*ChannelConfig, error) {
+	envelopeConfig, err := protoutil.ExtractEnvelope(block, 0)
+	if err != nil {
+		return nil, errors.WithMessage(err, "malformed configuration block")
+	}
+
+	configEnv := &cb.ConfigEnvelope{}
+	_, err = protoutil.UnmarshalEnvelopeOfType(envelopeConfig, cb.HeaderType_CONFIG, configEnv)
+	if err != nil {
+		return nil, errors.WithMessage(err, "malformed configuration envelope")
+	}
+
+	if configEnv.Config == nil {
+		return nil, errors.New("no config found in envelope")
+	}
+
+	if configEnv.Config.ChannelGroup == nil {
+		return nil, errors.New("no channel configuration found in the config block")
+	}
+
+	if configEnv.Config.ChannelGroup.Groups == nil {
+		return nil, errors.New("no channel configuration groups are available")
+	}
+
+	_, exists := configEnv.Config.ChannelGroup.Groups[ApplicationGroupKey]
+	if !exists {
+		return nil, errors.Errorf("invalid configuration block, missing %s configuration group", ApplicationGroupKey)
+	}
+
+	cc, err := NewChannelConfig(configEnv.Config.ChannelGroup, bccsp)
+	if err != nil {
+		return nil, errors.WithMessage(err, "no valid channel configuration found")
+	}
+	return cc, nil
+}
+
+// MarshalEtcdRaftMetadata serializes etcd RAFT metadata.
+func MarshalEtcdRaftMetadata(md *etcdraft.ConfigMetadata) ([]byte, error) {
+	copyMd := proto.Clone(md).(*etcdraft.ConfigMetadata)
+	for _, c := range copyMd.Consenters {
+		// Expect the user to set the config value for client/server certs to the
+		// path where they are persisted locally, then load these files to memory.
+		clientCert, err := ioutil.ReadFile(string(c.GetClientTlsCert()))
+		if err != nil {
+			return nil, fmt.Errorf("cannot load client cert for consenter %s:%d: %s", c.GetHost(), c.GetPort(), err)
+		}
+		c.ClientTlsCert = clientCert
+
+		serverCert, err := ioutil.ReadFile(string(c.GetServerTlsCert()))
+		if err != nil {
+			return nil, fmt.Errorf("cannot load server cert for consenter %s:%d: %s", c.GetHost(), c.GetPort(), err)
+		}
+		c.ServerTlsCert = serverCert
+	}
+	return proto.Marshal(copyMd)
 }

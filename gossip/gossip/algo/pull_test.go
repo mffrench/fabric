@@ -9,23 +9,17 @@ package algo
 import (
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/gossip/util"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
 func init() {
 	util.SetupTestLogging()
-	SetDigestWaitTime(time.Duration(100) * time.Millisecond)
-	SetRequestWaitTime(time.Duration(200) * time.Millisecond)
-	SetResponseWaitTime(time.Duration(200) * time.Millisecond)
 }
 
 type messageHook func(interface{})
@@ -73,7 +67,13 @@ func newPushPullTestInstance(name string, peers map[string]*pullTestInstance) *p
 		name:              name,
 	}
 
-	inst.PullEngine = NewPullEngine(inst, time.Duration(500)*time.Millisecond)
+	config := PullEngineConfig{
+		DigestWaitTime:   time.Duration(100) * time.Millisecond,
+		RequestWaitTime:  time.Duration(200) * time.Millisecond,
+		ResponseWaitTime: time.Duration(200) * time.Millisecond,
+	}
+
+	inst.PullEngine = NewPullEngine(inst, time.Duration(500)*time.Millisecond, config)
 
 	peers[name] = inst
 	go func() {
@@ -159,7 +159,6 @@ func (p *pullTestInstance) SendRes(items []string, context interface{}, nonce ui
 }
 
 func TestPullEngine_Add(t *testing.T) {
-	t.Parallel()
 	peers := make(map[string]*pullTestInstance)
 	inst1 := newPushPullTestInstance("p1", peers)
 	defer inst1.Stop()
@@ -169,7 +168,6 @@ func TestPullEngine_Add(t *testing.T) {
 }
 
 func TestPullEngine_Remove(t *testing.T) {
-	t.Parallel()
 	peers := make(map[string]*pullTestInstance)
 	inst1 := newPushPullTestInstance("p1", peers)
 	defer inst1.Stop()
@@ -182,7 +180,6 @@ func TestPullEngine_Remove(t *testing.T) {
 }
 
 func TestPullEngine_Stop(t *testing.T) {
-	t.Parallel()
 	peers := make(map[string]*pullTestInstance)
 	inst1 := newPushPullTestInstance("p1", peers)
 	inst2 := newPushPullTestInstance("p2", peers)
@@ -204,7 +201,6 @@ func TestPullEngine_Stop(t *testing.T) {
 }
 
 func TestPullEngineAll2AllWithIncrementalSpawning(t *testing.T) {
-	t.Parallel()
 	// Scenario: spawn 10 nodes, each 50 ms after the other
 	// and have them transfer data between themselves.
 	// Expected outcome: obviously, everything should succeed.
@@ -230,7 +226,6 @@ func TestPullEngineAll2AllWithIncrementalSpawning(t *testing.T) {
 }
 
 func TestPullEngineSelectiveUpdates(t *testing.T) {
-	t.Parallel()
 	// Scenario: inst1 has {1, 3} and inst2 has {0,1,2,3}.
 	// inst1 initiates to inst2
 	// Expected outcome: inst1 asks for 0,2 and inst2 sends 0,2 only
@@ -282,7 +277,6 @@ func TestPullEngineSelectiveUpdates(t *testing.T) {
 }
 
 func TestByzantineResponder(t *testing.T) {
-	t.Parallel()
 	// Scenario: inst1 sends hello to inst2 but inst3 is byzantine so it attempts to send a digest and a response to inst1.
 	// expected outcome is for inst1 not to process updates from inst3.
 	peers := make(map[string]*pullTestInstance)
@@ -340,7 +334,6 @@ func TestByzantineResponder(t *testing.T) {
 }
 
 func TestMultipleInitiators(t *testing.T) {
-	t.Parallel()
 	// Scenario: inst1, inst2 and inst3 both start protocol with inst4 at the same time.
 	// Expected outcome: inst4 successfully transfers state to all of them
 	peers := make(map[string]*pullTestInstance)
@@ -370,7 +363,6 @@ func TestMultipleInitiators(t *testing.T) {
 }
 
 func TestLatePeers(t *testing.T) {
-	t.Parallel()
 	// Scenario: inst1 initiates to inst2 (items: {1,2,3,4}) and inst3 (items: {5,6,7,8}),
 	// but inst2 is too slow to respond, and all items
 	// should be received from inst3.
@@ -403,7 +395,6 @@ func TestLatePeers(t *testing.T) {
 }
 
 func TestBiDiUpdates(t *testing.T) {
-	t.Parallel()
 	// Scenario: inst1 has {1, 3} and inst2 has {0,2} and both initiate to the other at the same time.
 	// Expected outcome: both have {0,1,2,3} in the end
 	peers := make(map[string]*pullTestInstance)
@@ -433,7 +424,6 @@ func TestBiDiUpdates(t *testing.T) {
 }
 
 func TestSpread(t *testing.T) {
-	t.Parallel()
 	// Scenario: inst1 initiates to inst2, inst3 inst4 and each have items 0-100. inst5 also has the same items but isn't selected
 	// Expected outcome: each responder (inst2, inst3 and inst4) is chosen at least once (the probability for not choosing each of them is slim)
 	// inst5 isn't selected at all
@@ -495,7 +485,6 @@ func TestSpread(t *testing.T) {
 }
 
 func TestFilter(t *testing.T) {
-	t.Parallel()
 	// Scenario: 3 instances, items [0-5] are found only in the first instance, the other 2 have none.
 	//           and also the first instance only gives the 2nd instance even items, and odd items to the 3rd.
 	//           also, instances 2 and 3 don't know each other.
@@ -538,38 +527,6 @@ func TestFilter(t *testing.T) {
 	assert.True(t, util.IndexInSlice(inst3.state.ToArray(), "4", Strcmp) == -1)
 	assert.True(t, util.IndexInSlice(inst3.state.ToArray(), "5", Strcmp) != -1)
 
-}
-
-func TestDefaultConfig(t *testing.T) {
-	preDigestWaitTime := util.GetDurationOrDefault("peer.gossip.digestWaitTime", defDigestWaitTime)
-	preRequestWaitTime := util.GetDurationOrDefault("peer.gossip.requestWaitTime", defRequestWaitTime)
-	preResponseWaitTime := util.GetDurationOrDefault("peer.gossip.responseWaitTime", defResponseWaitTime)
-	defer func() {
-		SetDigestWaitTime(preDigestWaitTime)
-		SetRequestWaitTime(preRequestWaitTime)
-		SetResponseWaitTime(preResponseWaitTime)
-	}()
-
-	// Check if we can read default duration when no properties are
-	// defined in config file.
-	viper.Reset()
-	assert.Equal(t, time.Duration(1)*time.Second, util.GetDurationOrDefault("peer.gossip.digestWaitTime", defDigestWaitTime))
-	assert.Equal(t, time.Duration(1)*time.Second, util.GetDurationOrDefault("peer.gossip.requestWaitTime", defRequestWaitTime))
-	assert.Equal(t, time.Duration(2)*time.Second, util.GetDurationOrDefault("peer.gossip.responseWaitTime", defResponseWaitTime))
-
-	// Check if the properties in the config file (core.yaml)
-	// are set to the desired duration.
-	viper.Reset()
-	viper.SetConfigName("core")
-	viper.SetEnvPrefix("CORE")
-	config.AddDevConfigPath(nil)
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
-	err := viper.ReadInConfig()
-	assert.NoError(t, err)
-	assert.Equal(t, time.Duration(1)*time.Second, util.GetDurationOrDefault("peer.gossip.digestWaitTime", defDigestWaitTime))
-	assert.Equal(t, time.Duration(1)*time.Second, util.GetDurationOrDefault("peer.gossip.requestWaitTime", defRequestWaitTime))
-	assert.Equal(t, time.Duration(2)*time.Second, util.GetDurationOrDefault("peer.gossip.responseWaitTime", defResponseWaitTime))
 }
 
 func Strcmp(a interface{}, b interface{}) bool {

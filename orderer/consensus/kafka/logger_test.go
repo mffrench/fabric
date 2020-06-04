@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	logging "github.com/op/go-logging"
+	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/onsi/gomega/gbytes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,9 +78,6 @@ func TestEventLogger(t *testing.T) {
 }
 
 func TestEventListener(t *testing.T) {
-
-	logging.SetLevel(logging.DEBUG, saramaLogID)
-
 	topic := channelNameForTest(t)
 	partition := int32(0)
 
@@ -133,5 +131,55 @@ func TestEventListener(t *testing.T) {
 		case <-time.After(shortTimeout):
 			t.Fatalf("timed out waiting for messages (receieved %d messages)", i)
 		}
+	}
+}
+
+func TestLogPossibleKafkaVersionMismatch(t *testing.T) {
+	topic := channelNameForTest(t)
+	partition := int32(0)
+
+	buf := gbytes.NewBuffer()
+	old := flogging.SetWriter(buf)
+	defer flogging.SetWriter(old)
+
+	broker := sarama.NewMockBroker(t, 500)
+	defer broker.Close()
+
+	config := sarama.NewConfig()
+	config.ClientID = t.Name()
+	config.Metadata.Retry.Max = 0
+	config.Metadata.Retry.Backoff = 250 * time.Millisecond
+	config.Net.ReadTimeout = 100 * time.Millisecond
+	config.Version = sarama.V0_10_0_0
+
+	broker.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(t).
+			SetBroker(broker.Addr(), broker.BrokerID()).
+			SetLeader(topic, partition, broker.BrokerID()),
+		"OffsetRequest": sarama.NewMockOffsetResponse(t).
+			SetOffset(topic, partition, sarama.OffsetNewest, 1000).
+			SetOffset(topic, partition, sarama.OffsetOldest, 0),
+		"FetchRequest": sarama.NewMockFetchResponse(t, 1).
+			SetMessage(topic, partition, 0, sarama.StringEncoder("MSG 00")),
+	})
+
+	consumer, err := sarama.NewConsumer([]string{broker.Addr()}, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer consumer.Close()
+
+	partitionConsumer, err := consumer.ConsumePartition(topic, partition, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer partitionConsumer.Close()
+
+	select {
+	case <-partitionConsumer.Messages():
+		t.Fatalf("did not expect to receive message")
+	case <-time.After(shortTimeout):
+		t.Logf("buffer:\n%s", buf.Contents())
+		assert.Contains(t, string(buf.Contents()), "Kafka.Version specified in the orderer configuration is incorrectly set")
 	}
 }

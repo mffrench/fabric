@@ -14,13 +14,17 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/common/crypto"
+	cb "github.com/hyperledger/fabric-protos-go/common"
+	ab "github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric/common/deliver"
+	"github.com/hyperledger/fabric/common/metrics"
+	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/orderer/common/broadcast"
-	"github.com/hyperledger/fabric/orderer/common/deliver"
 	localconfig "github.com/hyperledger/fabric/orderer/common/localconfig"
+	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	"github.com/hyperledger/fabric/orderer/common/multichannel"
-	cb "github.com/hyperledger/fabric/protos/common"
-	ab "github.com/hyperledger/fabric/protos/orderer"
+	"github.com/hyperledger/fabric/protoutil"
+	"github.com/pkg/errors"
 )
 
 type broadcastSupport struct {
@@ -35,22 +39,66 @@ type deliverSupport struct {
 	*multichannel.Registrar
 }
 
-func (bs deliverSupport) GetChain(chainID string) (deliver.Support, bool) {
-	return bs.Registrar.GetChain(chainID)
+func (ds deliverSupport) GetChain(chainID string) deliver.Chain {
+	chain := ds.Registrar.GetChain(chainID)
+	if chain == nil {
+		return nil
+	}
+	return chain
 }
 
 type server struct {
-	bh    broadcast.Handler
-	dh    deliver.Handler
+	bh    *broadcast.Handler
+	dh    *deliver.Handler
 	debug *localconfig.Debug
+	*multichannel.Registrar
+}
+
+type responseSender struct {
+	ab.AtomicBroadcast_DeliverServer
+}
+
+func (rs *responseSender) SendStatusResponse(status cb.Status) error {
+	reply := &ab.DeliverResponse{
+		Type: &ab.DeliverResponse_Status{Status: status},
+	}
+	return rs.Send(reply)
+}
+
+// SendBlockResponse sends block data and ignores pvtDataMap.
+func (rs *responseSender) SendBlockResponse(
+	block *cb.Block,
+	channelID string,
+	chain deliver.Chain,
+	signedData *protoutil.SignedData,
+) error {
+	response := &ab.DeliverResponse{
+		Type: &ab.DeliverResponse_Block{Block: block},
+	}
+	return rs.Send(response)
+}
+
+func (rs *responseSender) DataType() string {
+	return "block"
 }
 
 // NewServer creates an ab.AtomicBroadcastServer based on the broadcast target and ledger Reader
-func NewServer(r *multichannel.Registrar, _ crypto.LocalSigner, debug *localconfig.Debug) ab.AtomicBroadcastServer {
+func NewServer(
+	r *multichannel.Registrar,
+	metricsProvider metrics.Provider,
+	debug *localconfig.Debug,
+	timeWindow time.Duration,
+	mutualTLS bool,
+	expirationCheckDisabled bool,
+) ab.AtomicBroadcastServer {
 	s := &server{
-		dh:    deliver.NewHandlerImpl(deliverSupport{Registrar: r}),
-		bh:    broadcast.NewHandlerImpl(broadcastSupport{Registrar: r}),
-		debug: debug,
+		dh: deliver.NewHandler(deliverSupport{Registrar: r}, timeWindow, mutualTLS, deliver.NewMetrics(metricsProvider), expirationCheckDisabled),
+		bh: &broadcast.Handler{
+			SupportRegistrar: broadcastSupport{Registrar: r},
+			Metrics:          broadcast.NewMetrics(metricsProvider),
+		},
+		debug:     debug,
+		Registrar: r,
 	}
 	return s
 }
@@ -95,12 +143,12 @@ func (bmt *broadcastMsgTracer) Recv() (*cb.Envelope, error) {
 }
 
 type deliverMsgTracer struct {
-	ab.AtomicBroadcast_DeliverServer
+	deliver.Receiver
 	msgTracer
 }
 
 func (dmt *deliverMsgTracer) Recv() (*cb.Envelope, error) {
-	msg, err := dmt.AtomicBroadcast_DeliverServer.Recv()
+	msg, err := dmt.Receiver.Recv()
 	if traceDir := dmt.debug.DeliverTraceDir; traceDir != "" {
 		dmt.trace(traceDir, msg, err)
 	}
@@ -134,11 +182,29 @@ func (s *server) Deliver(srv ab.AtomicBroadcast_DeliverServer) error {
 		}
 		logger.Debugf("Closing Deliver stream")
 	}()
-	return s.dh.Handle(&deliverMsgTracer{
-		AtomicBroadcast_DeliverServer: srv,
-		msgTracer: msgTracer{
-			debug:    s.debug,
-			function: "Deliver",
+
+	policyChecker := func(env *cb.Envelope, channelID string) error {
+		chain := s.GetChain(channelID)
+		if chain == nil {
+			return errors.Errorf("channel %s not found", channelID)
+		}
+		// In maintenance mode, we typically require the signature of /Channel/Orderer/Readers.
+		// This will block Deliver requests from peers (which normally satisfy /Channel/Readers).
+		sf := msgprocessor.NewSigFilter(policies.ChannelReaders, policies.ChannelOrdererReaders, chain)
+		return sf.Apply(env)
+	}
+	deliverServer := &deliver.Server{
+		PolicyChecker: deliver.PolicyCheckerFunc(policyChecker),
+		Receiver: &deliverMsgTracer{
+			Receiver: srv,
+			msgTracer: msgTracer{
+				debug:    s.debug,
+				function: "Deliver",
+			},
 		},
-	})
+		ResponseSender: &responseSender{
+			AtomicBroadcast_DeliverServer: srv,
+		},
+	}
+	return s.dh.Handle(srv.Context(), deliverServer)
 }

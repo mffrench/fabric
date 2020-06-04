@@ -9,10 +9,8 @@ package channelconfig
 import (
 	"fmt"
 
-	cb "github.com/hyperledger/fabric/protos/common"
-	pb "github.com/hyperledger/fabric/protos/peer"
-
-	logging "github.com/op/go-logging"
+	cb "github.com/hyperledger/fabric-protos-go/common"
+	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/pkg/errors"
 )
 
@@ -63,14 +61,12 @@ func NewApplicationOrgConfig(id string, orgGroup *cb.ConfigGroup, mspConfig *MSP
 	return aoc, nil
 }
 
-// AnchorPeers returns the list of valid orderer addresses to connect to to invoke Broadcast/Deliver
+// AnchorPeers returns the list of anchor peers of this Organization
 func (aog *ApplicationOrgConfig) AnchorPeers() []*pb.AnchorPeer {
 	return aog.protos.AnchorPeers.AnchorPeers
 }
 
 func (aoc *ApplicationOrgConfig) Validate() error {
-	if logger.IsEnabledFor(logging.DEBUG) {
-		logger.Debugf("Anchor peers for org %s are %v", aoc.name, aoc.protos.AnchorPeers)
-	}
+	logger.Debugf("Anchor peers for org %s are %v", aoc.name, aoc.protos.AnchorPeers)
 	return aoc.OrganizationConfig.Validate()
 }

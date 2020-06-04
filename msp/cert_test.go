@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/hyperledger/fabric/bccsp/sw"
+	"github.com/hyperledger/fabric/bccsp/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -56,7 +57,7 @@ func TestSanitizeCertInvalidInput(t *testing.T) {
 	assert.NoError(t, err)
 	cert := &x509.Certificate{}
 	cert.PublicKey = &k.PublicKey
-	sigma, err := sw.MarshalECDSASignature(big.NewInt(1), elliptic.P256().Params().N)
+	sigma, err := utils.MarshalECDSASignature(big.NewInt(1), elliptic.P256().Params().N)
 	assert.NoError(t, err)
 	cert.Signature = sigma
 	cert.PublicKeyAlgorithm = x509.ECDSA
@@ -72,10 +73,10 @@ func TestSanitizeCert(t *testing.T) {
 	for {
 		k, cert = generateSelfSignedCert(t, time.Now())
 
-		_, s, err := sw.UnmarshalECDSASignature(cert.Signature)
+		_, s, err := utils.UnmarshalECDSASignature(cert.Signature)
 		assert.NoError(t, err)
 
-		lowS, err := sw.IsLowS(&k.PublicKey, s)
+		lowS, err := utils.IsLowS(&k.PublicKey, s)
 		assert.NoError(t, err)
 
 		if !lowS {
@@ -87,16 +88,18 @@ func TestSanitizeCert(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEqual(t, cert.Signature, sanitizedCert.Signature)
 
-	_, s, err := sw.UnmarshalECDSASignature(sanitizedCert.Signature)
+	_, s, err := utils.UnmarshalECDSASignature(sanitizedCert.Signature)
 	assert.NoError(t, err)
 
-	lowS, err := sw.IsLowS(&k.PublicKey, s)
+	lowS, err := utils.IsLowS(&k.PublicKey, s)
 	assert.NoError(t, err)
 	assert.True(t, lowS)
 }
 
 func TestCertExpiration(t *testing.T) {
-	msp := &bccspmsp{}
+	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+	assert.NoError(t, err)
+	msp := &bccspmsp{bccsp: cryptoProvider}
 	msp.opts = &x509.VerifyOptions{}
 	msp.opts.DNSName = "test.example.com"
 
@@ -104,7 +107,7 @@ func TestCertExpiration(t *testing.T) {
 	_, cert := generateSelfSignedCert(t, time.Now().Add(24*time.Hour))
 	msp.opts.Roots = x509.NewCertPool()
 	msp.opts.Roots.AddCert(cert)
-	_, err := msp.getUniqueValidationChain(cert, msp.getValidityOptsForCert(cert))
+	_, err = msp.getUniqueValidationChain(cert, msp.getValidityOptsForCert(cert))
 	assert.NoError(t, err)
 
 	// Certificate is in the past

@@ -1,52 +1,27 @@
-# Local build binaries
-node-cli/node-cli
-*.pyc
-/build/*
-/bin
-docs/build/*
-gotools/build/*
-examples/e2e_cli/docker-compose-e2e.yamlt
-.idea
-*.iml
-.DS_Store
-tags
-.tags
-.vagrant/
-/build
-/release/darwin-amd64
-/release/linux-amd64
-/release/linux-s390x
-/release/linux-ppc64le
-/release/windows-amd64
-# Emacs backup files
+#SPDX-License-Identifier: Apache-2.0
+.#*
 *~
 *#
-.#*
-# Vim file artifacts
-.*.sw*
-# bddtest log files
-*.log
-# bddtest coverage files
-bddtests/coverage
-# bddtest Dockerfile
-bddtests/environments/kafka/Dockerfile
-bddtests/tmp
-bddtests/volumes
+/bin
+/build
+/.build
 *.cov
-# Makefile dummy artifacts
+/docs/build/*
+.DS_Store
 .*-dummy
-# go-carpet output files
-go-carpet-coverage*
-# Test result xml files
+.gradle
+.idea
+*.iml
+*.log
+.project
+/release
 report.xml
 results.xml
-TESTS*.xml
 .settings
-.project
-.gradle
-bin/
-examples/e2e_cli/channel-artifacts/*.tx
-examples/e2e_cli/channel-artifacts/*.block
-examples/e2e_cli/crypto-config/*
-# vscode settings
+.*.sw*
+tags
+.tags
+TESTS*.xml
+.tox/
+.vagrant/
 .vscode

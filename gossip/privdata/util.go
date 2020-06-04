@@ -10,14 +10,14 @@ import (
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
+	"github.com/hyperledger/fabric-protos-go/msp"
+	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
-	"github.com/hyperledger/fabric/protos/common"
-	gossip2 "github.com/hyperledger/fabric/protos/gossip"
-	"github.com/hyperledger/fabric/protos/ledger/rwset"
-	"github.com/hyperledger/fabric/protos/ledger/rwset/kvrwset"
-	"github.com/hyperledger/fabric/protos/msp"
-	"github.com/hyperledger/fabric/protos/peer"
+	privdatacommon "github.com/hyperledger/fabric/gossip/privdata/common"
 )
 
 type txValidationFlags []uint8
@@ -31,17 +31,25 @@ type blockFactory struct {
 }
 
 func (bf *blockFactory) AddTxn(txID string, nsName string, hash []byte, collections ...string) *blockFactory {
-	return bf.AddTxnWithEndorsement(txID, nsName, hash, "", collections...)
+	return bf.AddTxnWithEndorsement(txID, nsName, hash, "", true, collections...)
 }
 
-func (bf *blockFactory) AddTxnWithEndorsement(txID string, nsName string, hash []byte, org string, collections ...string) *blockFactory {
+func (bf *blockFactory) AddReadOnlyTxn(txID string, nsName string, hash []byte, collections ...string) *blockFactory {
+	return bf.AddTxnWithEndorsement(txID, nsName, hash, "", false, collections...)
+}
+
+func (bf *blockFactory) AddTxnWithEndorsement(txID string, nsName string, hash []byte, org string, hasWrites bool, collections ...string) *blockFactory {
 	txn := &peer.Transaction{
 		Actions: []*peer.TransactionAction{
 			{},
 		},
 	}
+	nsRWSet := sampleNsRwSet(nsName, hash, collections...)
+	if !hasWrites {
+		nsRWSet = sampleReadOnlyNsRwSet(nsName, hash, collections...)
+	}
 	txrws := rwsetutil.TxRwSet{
-		NsRwSets: []*rwsetutil.NsRwSet{sampleNsRwSet(nsName, hash, collections...)},
+		NsRwSets: []*rwsetutil.NsRwSet{nsRWSet},
 	}
 
 	b, err := txrws.ToProtoBytes()
@@ -72,8 +80,8 @@ func (bf *blockFactory) AddTxnWithEndorsement(txID string, nsName string, hash [
 	}
 
 	if org != "" {
-		sId := &msp.SerializedIdentity{Mspid: org, IdBytes: []byte(fmt.Sprintf("p0%s", org))}
-		b, _ := proto.Marshal(sId)
+		sID := &msp.SerializedIdentity{Mspid: org, IdBytes: []byte(fmt.Sprintf("p0%s", org))}
+		b, _ := proto.Marshal(sID)
 		ccPayload.Action.Endorsements = []*peer.Endorsement{
 			{
 				Endorser: b,
@@ -167,20 +175,30 @@ func sampleNsRwSet(ns string, hash []byte, collections ...string) *rwsetutil.NsR
 		KvRwSet: sampleKvRwSet(),
 	}
 	for _, col := range collections {
-		nsRwSet.CollHashedRwSets = append(nsRwSet.CollHashedRwSets, sampleCollHashedRwSet(col, hash))
+		nsRwSet.CollHashedRwSets = append(nsRwSet.CollHashedRwSets, sampleCollHashedRwSet(col, hash, true))
+	}
+	return nsRwSet
+}
+
+func sampleReadOnlyNsRwSet(ns string, hash []byte, collections ...string) *rwsetutil.NsRwSet {
+	nsRwSet := &rwsetutil.NsRwSet{NameSpace: ns,
+		KvRwSet: sampleKvRwSet(),
+	}
+	for _, col := range collections {
+		nsRwSet.CollHashedRwSets = append(nsRwSet.CollHashedRwSets, sampleCollHashedRwSet(col, hash, false))
 	}
 	return nsRwSet
 }
 
 func sampleKvRwSet() *kvrwset.KVRWSet {
 	rqi1 := &kvrwset.RangeQueryInfo{StartKey: "k0", EndKey: "k9", ItrExhausted: true}
-	rqi1.SetRawReads([]*kvrwset.KVRead{
+	rwsetutil.SetRawReads(rqi1, []*kvrwset.KVRead{
 		{Key: "k1", Version: &kvrwset.Version{BlockNum: 1, TxNum: 1}},
 		{Key: "k2", Version: &kvrwset.Version{BlockNum: 1, TxNum: 2}},
 	})
 
 	rqi2 := &kvrwset.RangeQueryInfo{StartKey: "k00", EndKey: "k90", ItrExhausted: true}
-	rqi2.SetMerkelSummary(&kvrwset.QueryReadsMerkleSummary{MaxDegree: 5, MaxLevel: 4, MaxLevelHashes: [][]byte{[]byte("Hash-1"), []byte("Hash-2")}})
+	rwsetutil.SetMerkelSummary(rqi2, &kvrwset.QueryReadsMerkleSummary{MaxDegree: 5, MaxLevel: 4, MaxLevelHashes: [][]byte{[]byte("Hash-1"), []byte("Hash-2")}})
 	return &kvrwset.KVRWSet{
 		Reads:            []*kvrwset.KVRead{{Key: "key1", Version: &kvrwset.Version{BlockNum: 1, TxNum: 1}}},
 		RangeQueriesInfo: []*kvrwset.RangeQueryInfo{rqi1},
@@ -188,7 +206,7 @@ func sampleKvRwSet() *kvrwset.KVRWSet {
 	}
 }
 
-func sampleCollHashedRwSet(collectionName string, hash []byte) *rwsetutil.CollHashedRwSet {
+func sampleCollHashedRwSet(collectionName string, hash []byte, hasWrites bool) *rwsetutil.CollHashedRwSet {
 	collHashedRwSet := &rwsetutil.CollHashedRwSet{
 		CollectionName: collectionName,
 		HashedRwSet: &kvrwset.HashedRWSet{
@@ -196,14 +214,30 @@ func sampleCollHashedRwSet(collectionName string, hash []byte) *rwsetutil.CollHa
 				{KeyHash: []byte("Key-1-hash"), Version: &kvrwset.Version{BlockNum: 1, TxNum: 2}},
 				{KeyHash: []byte("Key-2-hash"), Version: &kvrwset.Version{BlockNum: 2, TxNum: 3}},
 			},
-			HashedWrites: []*kvrwset.KVWriteHash{
-				{KeyHash: []byte("Key-3-hash"), ValueHash: []byte("value-3-hash"), IsDelete: false},
-				{KeyHash: []byte("Key-4-hash"), ValueHash: []byte("value-4-hash"), IsDelete: true},
-			},
 		},
 		PvtRwSetHash: hash,
 	}
+	if hasWrites {
+		collHashedRwSet.HashedRwSet.HashedWrites = []*kvrwset.KVWriteHash{
+			{KeyHash: []byte("Key-3-hash"), ValueHash: []byte("value-3-hash"), IsDelete: false},
+			{KeyHash: []byte("Key-4-hash"), ValueHash: []byte("value-4-hash"), IsDelete: true},
+		}
+	}
 	return collHashedRwSet
+}
+
+func extractCollectionConfig(configPackage *peer.CollectionConfigPackage, collectionName string) *peer.CollectionConfig {
+	for _, config := range configPackage.Config {
+		switch cconf := config.Payload.(type) {
+		case *peer.CollectionConfig_StaticCollectionConfig:
+			if cconf.StaticCollectionConfig.Name == collectionName {
+				return config
+			}
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 type pvtDataFactory struct {
@@ -242,10 +276,10 @@ func (df *pvtDataFactory) create() []*ledger.TxPvtData {
 
 type digestsAndSourceFactory struct {
 	d2s     dig2sources
-	lastDig *gossip2.PvtDataDigest
+	lastDig *privdatacommon.DigKey
 }
 
-func (f *digestsAndSourceFactory) mapDigest(dig *gossip2.PvtDataDigest) *digestsAndSourceFactory {
+func (f *digestsAndSourceFactory) mapDigest(dig *privdatacommon.DigKey) *digestsAndSourceFactory {
 	f.lastDig = dig
 	return f
 }
@@ -260,7 +294,7 @@ func (f *digestsAndSourceFactory) toSources(peers ...string) *digestsAndSourceFa
 			Endorser: []byte(p),
 		})
 	}
-	f.d2s[f.lastDig] = endorsements
+	f.d2s[*f.lastDig] = endorsements
 	return f
 }
 

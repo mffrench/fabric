@@ -1,195 +1,159 @@
 Setting up the development environment
 --------------------------------------
 
-Overview
-~~~~~~~~
-
-Prior to the v1.0.0 release, the development environment utilized Vagrant
-running an Ubuntu image, which in turn launched Docker containers as a
-means of ensuring a consistent experience for developers who might be
-working with varying platforms, such as macOS, Windows, Linux, or
-whatever. Advances in Docker have enabled native support on the most
-popular development platforms: macOS and Windows. Hence, we have
-reworked our build to take full advantage of these advances. While we
-still maintain a Vagrant based approach that can be used for older
-versions of macOS and Windows that Docker does not support, we strongly
-encourage that the non-Vagrant development setup be used.
-
-Note that while the Vagrant-based development setup could not be used in
-a cloud context, the Docker-based build does support cloud platforms
-such as AWS, Azure, Google and IBM to name a few. Please follow the
-instructions for Ubuntu builds, below.
-
 Prerequisites
 ~~~~~~~~~~~~~
 
 -  `Git client <https://git-scm.com/downloads>`__
--  `Go <https://golang.org/>`__ - 1.9 or later (for v1.0.X releases, use
-   Go 1.7.X)
--  For macOS,
-   `Xcode <https://itunes.apple.com/us/app/xcode/id497799835?mt=12>`__
-   must be installed
--  `Docker <https://www.docker.com/products/overview>`__ - 17.06.2-ce or later
--  `Docker Compose <https://docs.docker.com/compose/>`__ - 1.14.0 or later
--  `Pip <https://pip.pypa.io/en/stable/installing/>`__
--  (macOS) you may need to install gnutar, as macOS comes with bsdtar
-   as the default, but the build uses some gnutar flags. You can use
-   Homebrew to install it as follows:
+-  `Go <https://golang.org/dl/>`__ version 1.14.x
+-  `Docker <https://docs.docker.com/get-docker/>`__ version 18.03 or later
+-  (macOS) `Xcode Command Line Tools <https://developer.apple.com/downloads/>`__
+-  `SoftHSM <https://github.com/opendnssec/SoftHSMv2>`__
+-  `jq <https://stedolan.github.io/jq/download/>`__
 
-::
-
-    brew install gnu-tar --with-default-names
-
--  (only if using Vagrant) - `Vagrant <https://www.vagrantup.com/>`__ -
-   1.9 or later
--  (only if using Vagrant) -
-   `VirtualBox <https://www.virtualbox.org/>`__ - 5.0 or later
--  BIOS Enabled Virtualization - Varies based on hardware
-
--  Note: The BIOS Enabled Virtualization may be within the CPU or
-   Security settings of the BIOS
-
-``pip`` and ``behave``
-~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    pip install --upgrade pip
-    pip install behave nose
-    pip install -I flask==0.10.1 python-dateutil==2.2 pytz==2014.3 pyyaml==3.10 couchdb==1.0 flask-cors==2.0.1 requests==2.4.3 pyOpenSSL==16.2.0 pysha3==1.0b1 grpcio==1.0.4
-
-    #PIP packages required for some behave tests
-    pip install urllib3 ndg-httpsclient pyasn1 ecdsa python-slugify grpcio-tools jinja2 b3j0f.aop six
 
 Steps
 ~~~~~
 
-Set your GOPATH
-^^^^^^^^^^^^^^^
+Install the Prerequisites
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Make sure you have properly setup your Host's `GOPATH environment
-variable <https://github.com/golang/go/wiki/GOPATH>`__. This allows for
-both building within the Host and the VM.
+For macOS, we recommend using `Homebrew <https://brew.sh>`__ to manage the
+development prereqs. The Xcode command line tools will be installed as part of
+the Homebrew installation.
 
-In case you installed Go into a different location from the standard one
-your Go distribution assumes, make sure that you also set `GOROOT
-environment variable <https://golang.org/doc/install#install>`__.
-
-Note to Windows users
-^^^^^^^^^^^^^^^^^^^^^
-
-If you are running Windows, before running any ``git clone`` commands,
-run the following command.
+Once Homebrew is ready, installing the necessary prerequisites is very easy:
 
 ::
 
-    git config --get core.autocrlf
+    brew install git go jq softhsm
+    brew cask install --appdir="/Applications" docker
 
-If ``core.autocrlf`` is set to ``true``, you must set it to ``false`` by
-running
+Docker Desktop must be launched to complete the installation so be sure to open
+the application after installing it:
+
+::
+
+    open /Applications/Docker.app
+
+Developing on Windows
+~~~~~~~~~~~~~~~~~~~~~
+
+On Windows 10 you should use the native Docker distribution and you
+may use the Windows PowerShell. However, for the ``binaries``
+command to succeed you will still need to have the ``uname`` command
+available. You can get it as part of Git but beware that only the
+64bit version is supported.
+
+Before running any ``git clone`` commands, run the following commands:
 
 ::
 
     git config --global core.autocrlf false
+    git config --global core.longpaths true
 
-If you continue with ``core.autocrlf`` set to ``true``, the
-``vagrant up`` command will fail with the error:
-
-``./setup.sh: /bin/bash^M: bad interpreter: No such file or directory``
-
-Cloning the Hyperledger Fabric source
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Since Hyperledger Fabric is written in ``Go``, you'll need to
-clone the source repository to your $GOPATH/src directory. If your $GOPATH
-has multiple path components, then you will want to use the first one.
-There's a little bit of setup needed:
+You can check the setting of these parameters with the following commands:
 
 ::
 
-    cd $GOPATH/src
-    mkdir -p github.com/hyperledger
-    cd github.com/hyperledger
+    git config --get core.autocrlf
+    git config --get core.longpaths
 
-Recall that we are using ``Gerrit`` for source control, which has its
-own internal git repositories. Hence, we will need to clone from
-:doc:`Gerrit <../Gerrit/gerrit>`.
-For brevity, the command is as follows:
+These need to be ``false`` and ``true`` respectively.
 
-::
+The ``curl`` command that comes with Git and Docker Toolbox is old and
+does not handle properly the redirect used in
+:doc:`getting_started`. Make sure you have and use a newer version
+which can be downloaded from the `cURL downloads page
+<https://curl.haxx.se/download.html>`__
 
-    git clone ssh://LFID@gerrit.hyperledger.org:29418/fabric && scp -p -P 29418 LFID@gerrit.hyperledger.org:hooks/commit-msg fabric/.git/hooks/
+Clone the Hyperledger Fabric source
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**Note:** Of course, you would want to replace ``LFID`` with your own
-:doc:`Linux Foundation ID <../Gerrit/lf-account>`.
-
-Bootstrapping the VM using Vagrant
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-If you are planning on using the Vagrant developer environment, the
-following steps apply. **Again, we recommend against its use except for
-developers that are limited to older versions of macOS and Windows that
-are not supported by Docker for Mac or Windows.**
+First navigate to https://github.com/hyperledger/fabric and fork the fabric
+repository using the fork button in the top-right corner. After forking, clone
+the repository.
 
 ::
 
-    cd $GOPATH/src/github.com/hyperledger/fabric/devenv
-    vagrant up
+    mkdir -p github.com/<your_github_userid>
+    cd github.com/<your_github_userid>
+    git clone https://github.com/<your_github_userid>/fabric
 
-Go get coffee... this will take a few minutes. Once complete, you should
-be able to ``ssh`` into the Vagrant VM just created.
+.. note::
+    If you are running Windows, before cloning the repository, run the following
+    command:
+
+    ::
+
+        git config --get core.autocrlf
+
+    If ``core.autocrlf`` is set to ``true``, you must set it to ``false`` by
+    running:
+
+    ::
+
+        git config --global core.autocrlf false
+
+
+Configure SoftHSM
+^^^^^^^^^^^^^^^^^
+
+A PKCS #11 cryptographic token implementation is required to run the unit
+tests. The PKCS #11 API is used by the bccsp component of Fabric to interact
+with hardware security modules (HSMs) that store cryptographic information and
+perform cryptographic computations.  For test environments, SoftHSM can be used
+to satisfy this requirement.
+
+SoftHSM generally requires additional configuration before it can be used. For
+example, the default configuration will attempt to store token data in a system
+directory that unprivileged users are unable to write to.
+
+SoftHSM configuration typically involves copying ``/etc/softhsm2.conf`` to
+``$HOME/.config/softhsm2/softhsm2.conf`` and changing ``directories.tokendir``
+to an appropriate location. Please see the man page for ``softhsm2.conf`` for
+details.
+
+After SoftHSM has been configured, the following command can be used to
+initialize the token required by the unit tests:
 
 ::
 
-    vagrant ssh
+    softhsm2-util --init-token --slot 0 --label "ForFabric" --so-pin 1234 --pin 98765432
 
-Once inside the VM, you can find the source under
-``$GOPATH/src/github.com/hyperledger/fabric``. It is also mounted as
-``/hyperledger``.
+If tests are unable to locate the libsofthsm2.so library in your environment,
+specify the library path, the PIN, and the label of your token in the
+appropriate environment variables. For example, on macOS:
 
-Building Hyperledger Fabric
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+::
 
-Once you have all the dependencies installed, and have cloned the
-repository, you can proceed to :doc:`build and test <build>` Hyperledger
-Fabric.
+    export PKCS11_LIB="/usr/local/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so"
+    export PKCS11_PIN=98765432
+    export PKCS11_LABEL="ForFabric"
 
-Notes
-~~~~~
+Install the development tools
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**NOTE:** Any time you change any of the files in your local fabric
-directory (under ``$GOPATH/src/github.com/hyperledger/fabric``), the
-update will be instantly available within the VM fabric directory.
+Once the repository is cloned, you can use ``make`` to install some of the
+tools used in the development environment. By default, these tools will be
+installed into ``$HOME/go/bin``. Please be sure your ``PATH`` includes that
+directory.
 
-**NOTE:** If you intend to run the development environment behind an
-HTTP Proxy, you need to configure the guest so that the provisioning
-process may complete. You can achieve this via the *vagrant-proxyconf*
-plugin. Install with ``vagrant plugin install vagrant-proxyconf`` and
-then set the VAGRANT\_HTTP\_PROXY and VAGRANT\_HTTPS\_PROXY environment
-variables *before* you execute ``vagrant up``. More details are
-available here: https://github.com/tmatilai/vagrant-proxyconf/
+::
 
-**NOTE:** The first time you run this command it may take quite a while
-to complete (it could take 30 minutes or more depending on your
-environment) and at times it may look like it's not doing anything. As
-long you don't get any error messages just leave it alone, it's all
-good, it's just cranking.
+    make gotools
 
-**NOTE to Windows 10 Users:** There is a known problem with vagrant on
-Windows 10 (see
-`mitchellh/vagrant#6754 <https://github.com/mitchellh/vagrant/issues/6754>`__).
-If the ``vagrant up`` command fails it may be because you do not have
-the Microsoft Visual C++ Redistributable package installed. You can
-download the missing package at the following address:
-http://www.microsoft.com/en-us/download/details.aspx?id=8328
+After installing the tools, the build environment can be verified by running a
+few commands.
 
-**NOTE:** The inclusion of the miekg/pkcs11 package introduces
-an external dependency on the libtdl.h header file during
-a build of fabric. Please ensure your libtool and libtdhl-dev packages
-are installed. Otherwise, you may get a ltdl.h header missing error.
-You can download the missing package by command:
-``sudo apt-get install -y build-essential git make curl unzip g++ libtool``.
+::
+
+    make basic-checks integration-test-prereqs
+    ginkgo -r ./integration/nwo
+
+If those commands completely successfully, you're ready to Go!
+
+If you plan to use the Hyperledger Fabric application SDKs then be sure to check out their prerequisites in the Node.js SDK `README <https://github.com/hyperledger/fabric-sdk-node#build-and-test>`__ and Java SDK `README <https://github.com/hyperledger/fabric-gateway-java/blob/master/README.md>`__.
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/
-

@@ -5,31 +5,24 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-function filterExcludedFiles {
-  CHECK=`echo "$CHECK" | grep -v .png$ | grep -v .rst$ | grep -v ^.git/ \
-  | grep -v .pem$ | grep -v .block$ | grep -v .tx$ | grep -v ^LICENSE$ | grep -v _sk$ \
-  | grep -v .key$ | grep -v \\.gen.go$ | grep -v ^Gopkg.lock$ \
-  | grep -v .md$ | grep -v ^vendor/ | grep -v ^build/ | grep -v .pb.go$ | sort -u`
-}
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "$0")" && pwd)/functions.sh"
 
-CHECK=$(git diff --name-only HEAD --diff-filter=ACMRTUXB *)
-filterExcludedFiles
-
+CHECK=$(git diff --name-only --diff-filter=ACMRTUXB HEAD | tr '\n' ' ')
 if [[ -z "$CHECK" ]]; then
-  CHECK=$(git diff-tree --no-commit-id --name-only --diff-filter=ACMRTUXB -r $(git log -2 \
-    --pretty=format:"%h"))
-    filterExcludedFiles
+    CHECK=$(git diff-tree --no-commit-id --name-only --diff-filter=ACMRTUXB -r "HEAD^..HEAD" | tr '\n' ' ')
 fi
 
-if [[ -z "$CHECK" ]]; then
-   echo "All files are excluded from having license headers"
-   exit 0
+FILTERED=$(filterExcludedAndGeneratedFiles "$CHECK")
+if [[ -z "$FILTERED" ]]; then
+    echo "All files are excluded from having license headers"
+    exit 0
 fi
 
-missing=`echo "$CHECK" | xargs ls -d 2>/dev/null | xargs grep -L "SPDX-License-Identifier"`
+missing=$(echo "$FILTERED" | sort -u |  xargs ls -d 2>/dev/null | xargs grep -L "SPDX-License-Identifier")
 if [[ -z "$missing" ]]; then
-   echo "All files have SPDX-License-Identifier headers"
-   exit 0
+    echo "All files have SPDX-License-Identifier headers"
+    exit 0
 fi
 echo "The following files are missing SPDX-License-Identifier headers:"
 echo "$missing"
@@ -39,10 +32,10 @@ echo "SPDX-License-Identifier: Apache-2.0"
 
 echo
 echo "Checking committed files for traditional Apache License headers ..."
-missing=`echo "$missing" | xargs ls -d 2>/dev/null | xargs grep -L "http://www.apache.org/licenses/LICENSE-2.0"`
+missing=$(echo "$missing" | xargs ls -d 2>/dev/null | xargs grep -L "http://www.apache.org/licenses/LICENSE-2.0")
 if [[ -z "$missing" ]]; then
-   echo "All remaining files have Apache 2.0 headers"
-   exit 0
+    echo "All remaining files have Apache 2.0 headers"
+    exit 0
 fi
 echo "The following files are missing traditional Apache 2.0 headers:"
 echo "$missing"

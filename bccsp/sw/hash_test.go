@@ -28,6 +28,8 @@ import (
 )
 
 func TestHash(t *testing.T) {
+	t.Parallel()
+
 	expectetMsg := []byte{1, 2, 3, 4}
 	expectedOpts := &mocks2.HashOpts{}
 	expectetValue := []byte{1, 2, 3, 4, 5}
@@ -40,7 +42,7 @@ func TestHash(t *testing.T) {
 		Value:   expectetValue,
 		Err:     nil,
 	}
-	csp := impl{hashers: hashers}
+	csp := CSP{Hashers: hashers}
 	value, err := csp.Hash(expectetMsg, expectedOpts)
 	assert.Equal(t, expectetValue, value)
 	assert.Nil(t, err)
@@ -52,13 +54,15 @@ func TestHash(t *testing.T) {
 		Value:   nil,
 		Err:     expectedErr,
 	}
-	csp = impl{hashers: hashers}
+	csp = CSP{Hashers: hashers}
 	value, err = csp.Hash(expectetMsg, expectedOpts)
 	assert.Nil(t, value)
 	assert.Contains(t, err.Error(), expectedErr.Error())
 }
 
 func TestGetHash(t *testing.T) {
+	t.Parallel()
+
 	expectedOpts := &mocks2.HashOpts{}
 	expectetValue := sha256.New()
 	expectedErr := errors.New("Expected Error")
@@ -69,7 +73,7 @@ func TestGetHash(t *testing.T) {
 		ValueHash: expectetValue,
 		Err:       nil,
 	}
-	csp := impl{hashers: hashers}
+	csp := CSP{Hashers: hashers}
 	value, err := csp.GetHash(expectedOpts)
 	assert.Equal(t, expectetValue, value)
 	assert.Nil(t, err)
@@ -80,13 +84,15 @@ func TestGetHash(t *testing.T) {
 		ValueHash: expectetValue,
 		Err:       expectedErr,
 	}
-	csp = impl{hashers: hashers}
+	csp = CSP{Hashers: hashers}
 	value, err = csp.GetHash(expectedOpts)
 	assert.Nil(t, value)
 	assert.Contains(t, err.Error(), expectedErr.Error())
 }
 
 func TestHasher(t *testing.T) {
+	t.Parallel()
+
 	hasher := &hasher{hash: sha256.New}
 
 	msg := []byte("Hello World")

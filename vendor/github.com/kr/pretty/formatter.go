@@ -10,12 +10,8 @@ import (
 	"github.com/kr/text"
 )
 
-const (
-	limit = 50
-)
-
 type formatter struct {
-	x     interface{}
+	v     reflect.Value
 	force bool
 	quote bool
 }
@@ -30,11 +26,11 @@ type formatter struct {
 // format x according to the usual rules of package fmt.
 // In particular, if x satisfies fmt.Formatter, then x.Format will be called.
 func Formatter(x interface{}) (f fmt.Formatter) {
-	return formatter{x: x, quote: true}
+	return formatter{v: reflect.ValueOf(x), quote: true}
 }
 
 func (fo formatter) String() string {
-	return fmt.Sprint(fo.x) // unwrap it
+	return fmt.Sprint(fo.v.Interface()) // unwrap it
 }
 
 func (fo formatter) passThrough(f fmt.State, c rune) {
@@ -51,14 +47,14 @@ func (fo formatter) passThrough(f fmt.State, c rune) {
 		s += fmt.Sprintf(".%d", p)
 	}
 	s += string(c)
-	fmt.Fprintf(f, s, fo.x)
+	fmt.Fprintf(f, s, fo.v.Interface())
 }
 
 func (fo formatter) Format(f fmt.State, c rune) {
 	if fo.force || c == 'v' && f.Flag('#') && f.Flag(' ') {
 		w := tabwriter.NewWriter(f, 4, 4, 1, ' ', 0)
 		p := &printer{tw: w, Writer: w, visited: make(map[visit]int)}
-		p.printValue(reflect.ValueOf(fo.x), true, fo.quote)
+		p.printValue(fo.v, true, fo.quote)
 		w.Flush()
 		return
 	}
@@ -129,7 +125,6 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 			}
 			keys := v.MapKeys()
 			for i := 0; i < v.Len(); i++ {
-				showTypeInStruct := true
 				k := keys[i]
 				mv := v.MapIndex(k)
 				pp.printValue(k, false, true)
@@ -137,7 +132,7 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 				if expand {
 					writeByte(pp, '\t')
 				}
-				showTypeInStruct = t.Elem().Kind() == reflect.Interface
+				showTypeInStruct := t.Elem().Kind() == reflect.Interface
 				pp.printValue(mv, showTypeInStruct, true)
 				if expand {
 					io.WriteString(pp, ",\n")
@@ -317,11 +312,6 @@ func (p *printer) fmtString(s string, quote bool) {
 		s = strconv.Quote(s)
 	}
 	io.WriteString(p, s)
-}
-
-func tryDeepEqual(a, b interface{}) bool {
-	defer func() { recover() }()
-	return reflect.DeepEqual(a, b)
 }
 
 func writeByte(w io.Writer, b byte) {

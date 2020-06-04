@@ -17,6 +17,8 @@ limitations under the License.
 package sysccprovider
 
 import (
+	"github.com/hyperledger/fabric/common/channelconfig"
+	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/core/ledger"
 )
 
@@ -25,55 +27,28 @@ import (
 // system chaincode package without importing it; more methods
 // should be added below if necessary
 type SystemChaincodeProvider interface {
-	// IsSysCC returns true if the supplied chaincode is a system chaincode
-	IsSysCC(name string) bool
-
-	// IsSysCCAndNotInvokableCC2CC returns true if the supplied chaincode
-	// is a system chaincode and is not invokable through a cc2cc invocation
-	IsSysCCAndNotInvokableCC2CC(name string) bool
-
-	// IsSysCCAndNotInvokable returns true if the supplied chaincode
-	// is a system chaincode and is not invokable through a proposal
-	IsSysCCAndNotInvokableExternal(name string) bool
-
 	// GetQueryExecutorForLedger returns a query executor for the
 	// ledger of the supplied channel.
 	// That's useful for system chaincodes that require unfettered
 	// access to the ledger
 	GetQueryExecutorForLedger(cid string) (ledger.QueryExecutor, error)
-}
 
-var sccFactory SystemChaincodeProviderFactory
+	// GetApplicationConfig returns the configtxapplication.SharedConfig for the channel
+	// and whether the Application config exists
+	GetApplicationConfig(cid string) (channelconfig.Application, bool)
 
-// SystemChaincodeProviderFactory defines a factory interface so
-// that the actual implementation can be injected
-type SystemChaincodeProviderFactory interface {
-	NewSystemChaincodeProvider() SystemChaincodeProvider
-}
-
-// RegisterSystemChaincodeProviderFactory is to be called once to set
-// the factory that will be used to obtain instances of ChaincodeProvider
-func RegisterSystemChaincodeProviderFactory(sccfact SystemChaincodeProviderFactory) {
-	sccFactory = sccfact
-}
-
-// GetSystemChaincodeProvider returns instances of SystemChaincodeProvider;
-// the actual implementation is controlled by the factory that
-// is registered via RegisterSystemChaincodeProviderFactory
-func GetSystemChaincodeProvider() SystemChaincodeProvider {
-	if sccFactory == nil {
-		panic("The factory must be set first via RegisterSystemChaincodeProviderFactory")
-	}
-	return sccFactory.NewSystemChaincodeProvider()
+	// Returns the policy manager associated to the passed channel
+	// and whether the policy manager exists
+	PolicyManager(channelID string) (policies.Manager, bool)
 }
 
 // ChaincodeInstance is unique identifier of chaincode instance
 type ChaincodeInstance struct {
-	ChainID          string
+	ChannelID        string
 	ChaincodeName    string
 	ChaincodeVersion string
 }
 
 func (ci *ChaincodeInstance) String() string {
-	return ci.ChainID + "." + ci.ChaincodeName + "#" + ci.ChaincodeVersion
+	return ci.ChannelID + "." + ci.ChaincodeName + "#" + ci.ChaincodeVersion
 }

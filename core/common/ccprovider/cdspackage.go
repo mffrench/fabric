@@ -17,17 +17,15 @@ limitations under the License.
 package ccprovider
 
 import (
+	"bytes"
 	"fmt"
+	"hash"
 	"io/ioutil"
 	"os"
 
 	"github.com/golang/protobuf/proto"
-
-	"bytes"
-
+	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/bccsp/factory"
-	pb "github.com/hyperledger/fabric/protos/peer"
 )
 
 //----- CDSData ------
@@ -59,20 +57,21 @@ func (data *CDSData) Equals(other *CDSData) bool {
 	return other != nil && bytes.Equal(data.CodeHash, other.CodeHash) && bytes.Equal(data.MetaDataHash, other.MetaDataHash)
 }
 
+// GetHasher interface defines a subset of bccsp which contains GetHash function.
+type GetHasher interface {
+	GetHash(opts bccsp.HashOpts) (h hash.Hash, err error)
+}
+
 //--------- CDSPackage ------------
 
 //CDSPackage encapsulates ChaincodeDeploymentSpec.
 type CDSPackage struct {
-	buf     []byte
-	depSpec *pb.ChaincodeDeploymentSpec
-	data    *CDSData
-	datab   []byte
-	id      []byte
-}
-
-// resets data
-func (ccpack *CDSPackage) reset() {
-	*ccpack = CDSPackage{}
+	buf       []byte
+	depSpec   *pb.ChaincodeDeploymentSpec
+	data      *CDSData
+	datab     []byte
+	id        []byte
+	GetHasher GetHasher
 }
 
 // GetId gets the fingerprint of the chaincode based on package computation
@@ -128,17 +127,13 @@ func (ccpack *CDSPackage) getCDSData(cds *pb.ChaincodeDeploymentSpec) ([]byte, [
 		panic("nil cds")
 	}
 
-	b, err := proto.Marshal(cds)
-	if err != nil {
+	if _, err := proto.Marshal(cds); err != nil {
 		return nil, nil, nil, err
 	}
 
-	if err = factory.InitFactories(nil); err != nil {
-		return nil, nil, nil, fmt.Errorf("Internal error, BCCSP could not be initialized : %s", err)
-	}
-
 	//compute hashes now
-	hash, err := factory.GetDefault().GetHash(&bccsp.SHAOpts{})
+	// hash, err := factory.GetDefault().GetHash(&bccsp.SHAOpts{})
+	hash, err := ccpack.GetHasher.GetHash(&bccsp.SHAOpts{})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -157,7 +152,7 @@ func (ccpack *CDSPackage) getCDSData(cds *pb.ChaincodeDeploymentSpec) ([]byte, [
 
 	cdsdata.MetaDataHash = hash.Sum(nil)
 
-	b, err = proto.Marshal(cdsdata)
+	b, err := proto.Marshal(cdsdata)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -184,6 +179,16 @@ func (ccpack *CDSPackage) ValidateCC(ccdata *ChaincodeData) error {
 		return fmt.Errorf("nil data")
 	}
 
+	// This is a hack. LSCC expects a specific LSCC error when names are invalid so it
+	// has its own validation code. We can't use that error because of import cycles.
+	// Unfortunately, we also need to check if what have makes some sort of sense as
+	// protobuf will gladly deserialize garbage and there are paths where we assume that
+	// a successful unmarshal means everything works but, if it fails, we try to unmarshal
+	// into something different.
+	if !isPrintable(ccdata.Name) {
+		return fmt.Errorf("invalid chaincode name: %q", ccdata.Name)
+	}
+
 	if ccdata.Name != ccpack.depSpec.ChaincodeSpec.ChaincodeId.Name || ccdata.Version != ccpack.depSpec.ChaincodeSpec.ChaincodeId.Version {
 		return fmt.Errorf("invalid chaincode data %v (%v)", ccdata, ccpack.depSpec.ChaincodeSpec.ChaincodeId)
 	}
@@ -203,8 +208,6 @@ func (ccpack *CDSPackage) ValidateCC(ccdata *ChaincodeData) error {
 
 //InitFromBuffer sets the buffer if valid and returns ChaincodeData
 func (ccpack *CDSPackage) InitFromBuffer(buf []byte) (*ChaincodeData, error) {
-	//incase ccpack is reused
-	ccpack.reset()
 
 	depSpec := &pb.ChaincodeDeploymentSpec{}
 	err := proto.Unmarshal(buf, depSpec)
@@ -227,20 +230,28 @@ func (ccpack *CDSPackage) InitFromBuffer(buf []byte) (*ChaincodeData, error) {
 }
 
 //InitFromFS returns the chaincode and its package from the file system
-func (ccpack *CDSPackage) InitFromFS(ccname string, ccversion string) ([]byte, *pb.ChaincodeDeploymentSpec, error) {
-	//incase ccpack is reused
-	ccpack.reset()
+func (ccpack *CDSPackage) InitFromPath(ccNameVersion string, path string) ([]byte, *pb.ChaincodeDeploymentSpec, error) {
 
-	buf, err := GetChaincodePackage(ccname, ccversion)
+	buf, err := GetChaincodePackageFromPath(ccNameVersion, path)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if _, err = ccpack.InitFromBuffer(buf); err != nil {
+	ccdata, err := ccpack.InitFromBuffer(buf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := ccpack.ValidateCC(ccdata); err != nil {
 		return nil, nil, err
 	}
 
 	return ccpack.buf, ccpack.depSpec, nil
+}
+
+//InitFromFS returns the chaincode and its package from the file system
+func (ccpack *CDSPackage) InitFromFS(ccNameVersion string) ([]byte, *pb.ChaincodeDeploymentSpec, error) {
+	return ccpack.InitFromPath(ccNameVersion, chaincodeInstallPath)
 }
 
 //PutChaincodeToFS - serializes chaincode to a package on the file system

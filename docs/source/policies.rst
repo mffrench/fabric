@@ -47,7 +47,7 @@ There are presently two different types of policies implemented:
    the organization admin policies".
 
 Policies are encoded in a ``common.Policy`` message as defined in
-``fabric/protos/common/policies.proto``. They are defined by the
+``fabric-protos/common/policies.proto``. They are defined by the
 following message:
 
 ::
@@ -212,7 +212,7 @@ As another more complex example:
 
 This defines a signature policy over MSP Principals ``mspP1``,
 ``mspP2``, and ``mspP3``. It requires one signature which satisfies
-``mspP0``, and another signature which either satisfies ``mspP2`` or
+``mspP1``, and another signature which either satisfies ``mspP2`` or
 ``mspP3``.
 
 Hopefully it is clear that complicated and relatively arbitrary logic
@@ -265,7 +265,7 @@ cryptography other than X.509, for the purposes of this document, the
 discussion will assume that the underlying MSP implementation is the
 default MSP type, based on X.509 cryptography.
 
-An MSP Principal is defined in ``fabric/protos/msp_principal.proto`` as
+An MSP Principal is defined in ``fabric-protos/msp_principal.proto`` as
 follows:
 
 ::
@@ -299,23 +299,29 @@ message defined as follows:
 
 ::
 
-    message MSPRole {
-        string msp_identifier = 1;
+   message MSPRole {
+       string msp_identifier = 1;
 
-        enum MSPRoleType {
-            MEMBER = 0; // Represents an MSP Member
-            ADMIN  = 1; // Represents an MSP Admin
-        }
+       enum MSPRoleType {
+           MEMBER = 0; // Represents an MSP Member
+           ADMIN  = 1; // Represents an MSP Admin
+           CLIENT = 2; // Represents an MSP Client
+           PEER = 3; // Represents an MSP Peer
+       }
 
-        MSPRoleType Role = 2;
-    }
+       MSPRoleType role = 2;
+   }
 
 The ``msp_identifier`` is set to the ID of the MSP (as defined by the
-MSPConfig proto in the channel configuration for an org) which will
-evaluate the signature, and the ``Role`` is set to either ``MEMBER`` or
-``ADMIN``. The ``MEMBER`` role will match any certificate issued by the
-MSP, while the ``ADMIN`` role will match only certificates which are
-enumerated as admin certificates in the MSP definition.
+``MSPConfig`` proto in the channel configuration for an org) which will
+evaluate the signature, and the ``Role`` is set to either ``MEMBER``,
+``ADMIN``, ``CLIENT`` or ``PEER``. In particular:
+
+1. ``MEMBER`` matches any certificate issued by the MSP.
+2. ``ADMIN`` matches certificates enumerated as admin in the MSP definition.
+3. ``CLIENT`` (``PEER``) matches certificates that carry the client (peer) Organizational unit.
+
+(see `MSP Documentation <http://hyperledger-fabric.readthedocs.io/en/latest/msp.html>`_)
 
 Constructing an ImplicitMetaPolicy
 ----------------------------------
@@ -324,7 +330,7 @@ The ``ImplicitMetaPolicy`` is only validly defined in the context of
 channel configuration. It is ``Implicit`` because it is constructed
 implicitly based on the current configuration, and it is ``Meta``
 because its evaluation is not against MSP principals, but rather against
-other policies. It is defined in ``fabric/protos/common/policies.proto``
+other policies. It is defined in ``fabric-protos/common/policies.proto``
 as follows:
 
 ::
@@ -375,33 +381,14 @@ organization's ``bar`` policies are satisfied.
 Policy Defaults
 ---------------
 
-The ``configtxgen`` tool creates default policies as follows:
-
-::
-
-    /Channel/Readers : ImplicitMetaPolicy for ANY of /Channel/*/Readers
-    /Channel/Writers : ImplicitMetaPolicy for ANY of /Channel/*/Writers
-    /Channel/Admins  : ImplicitMetaPolicy for MAJORITY of /Channel/*/Admins
-
-    /Channel/Application/Readers : ImplicitMetaPolicy for ANY of /Channel/Application/*/Readers
-    /Channel/Application/Writers : ImplicitMetaPolicy for ANY of /Channel/Application/*/Writers
-    /Channel/Application/Admins  : ImplicitMetaPolicy for MAJORITY of /Channel/Application/*/Admins
-
-    /Channel/Orderer/Readers : ImplicitMetaPolicy for ANY of /Channel/Orderer/*/Readers
-    /Channel/Orderer/Writers : ImplicitMetaPolicy for ANY of /Channel/Orderer/*/Writers
-    /Channel/Orderer/Admins  : ImplicitMetaPolicy for MAJORITY of /Channel/Orderer/*/Admins
-
-    # Here * represents either Orderer, or Application, and this is repeated for each org
-    /Channel/*/Org/Readers : SignaturePolicy for 1 of MSP Principal Org Member
-    /Channel/*/Org/Writers : SignaturePolicy for 1 of MSP Principal Org Member
-    /Channel/*/Org/Admins  : SignaturePolicy for 1 of MSP Principal Org Admin
+The ``configtxgen`` tool uses policies which must be specified explicitly in configtx.yaml.
 
 Note that policies higher in the hierarchy are all defined as
 ``ImplicitMetaPolicy``\ s while leaf nodes necessarily are defined as
 ``SignaturePolicy``\ s. This set of defaults works nicely because the
 ``ImplicitMetaPolicies`` do not need to be redefined as the number of
 organizations change, and the individual organizations may pick their
-own rules and thresholds for what is means to be a a Reader, Writer, and
+own rules and thresholds for what is means to be a Reader, Writer, and
 Admin.
 
 .. Licensed under Creative Commons Attribution 4.0 International License

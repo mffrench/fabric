@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # hyperledger-fabricdocs documentation build configuration file, created by
 # sphinx-quickstart on Mon Feb 20 16:11:53 2017.
 #
@@ -23,6 +25,10 @@ sys.path.insert(0, os.path.abspath('.'))
 
 import sphinx_rtd_theme
 
+placeholder_replacements = {
+    "{BRANCH}" : "master"
+}
+
 # -- General configuration ------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
@@ -43,11 +49,20 @@ extensions = ['sphinx.ext.autodoc',
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
+# recommonmark is a python utility that allows markdown to be used within
+# Sphinx projects.
+# Installed version as per directive in docs/requirement.txt
+from recommonmark.parser import CommonMarkParser
+
+source_parsers = {
+    '.md': CommonMarkParser,
+}
+
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 #
 # source_suffix = ['.rst', '.md']
-source_suffix = '.rst'
+source_suffix = ['.rst', '.md']
 
 # The master toctree document.
 master_doc = 'index'
@@ -94,8 +109,6 @@ html_theme = 'sphinx_rtd_theme'
 
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
-html_add_permalinks = True
-
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
@@ -107,8 +120,17 @@ html_add_permalinks = True
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
+def placeholderReplace(app, docname, source):
+    result = source[0]
+    for key in app.config.placeholder_replacements:
+        result = result.replace(key, app.config.placeholder_replacements[key])
+    source[0] = result
+
+
 def setup(app):
     app.add_stylesheet('css/custom.css')
+    app.add_config_value('placeholder_replacements', {}, True)
+    app.connect('source-read', placeholderReplace)
 
 # -- Options for HTMLHelp output ------------------------------------------
 
@@ -188,7 +210,11 @@ epub_copyright = copyright
 # A list of files that should not be packed into the epub file.
 epub_exclude_files = ['search.html']
 
-
-
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'https://docs.python.org/': None}
+
+# Skip the links with anchor tags during the linkcheck
+linkcheck_anchors = False
+
+# Increase the linkcheck timeout to 5 seconds
+linkcheck_timeout = 5

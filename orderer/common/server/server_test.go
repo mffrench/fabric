@@ -13,15 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/protobuf/proto"
+	cb "github.com/hyperledger/fabric-protos-go/common"
+	ab "github.com/hyperledger/fabric-protos-go/orderer"
 	localconfig "github.com/hyperledger/fabric/orderer/common/localconfig"
-	cb "github.com/hyperledger/fabric/protos/common"
-	ab "github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protos/utils"
-
+	"github.com/hyperledger/fabric/orderer/common/multichannel"
+	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/peer"
 )
 
 func TestBroadcastNoPanic(t *testing.T) {
@@ -38,34 +37,44 @@ type recvr interface {
 	Recv() (*cb.Envelope, error)
 }
 
-type mockSrv struct {
+type mockBroadcastSrv struct {
 	grpc.ServerStream
 	msg *cb.Envelope
 	err error
 }
 
-func (mockSrv) Context() context.Context {
-	return peer.NewContext(context.Background(), &peer.Peer{})
-}
-
-type mockBroadcastSrv mockSrv
-
 func (mbs *mockBroadcastSrv) Recv() (*cb.Envelope, error) {
 	return mbs.msg, mbs.err
 }
 
-func (mb *mockBroadcastSrv) Send(br *ab.BroadcastResponse) error {
-	panic("Unimplimented")
+func (mbs *mockBroadcastSrv) Send(br *ab.BroadcastResponse) error {
+	panic("Unimplemented")
 }
 
-type mockDeliverSrv mockSrv
+type mockDeliverSrv struct {
+	grpc.ServerStream
+	msg *cb.Envelope
+	err error
+}
+
+func (mds *mockDeliverSrv) CreateStatusReply(status cb.Status) proto.Message {
+	return &ab.DeliverResponse{
+		Type: &ab.DeliverResponse_Status{Status: status},
+	}
+}
+
+func (mds *mockDeliverSrv) CreateBlockReply(block *cb.Block) proto.Message {
+	return &ab.DeliverResponse{
+		Type: &ab.DeliverResponse_Block{Block: block},
+	}
+}
 
 func (mds *mockDeliverSrv) Recv() (*cb.Envelope, error) {
 	return mds.msg, mds.err
 }
 
 func (mds *mockDeliverSrv) Send(br *ab.DeliverResponse) error {
-	panic("Unimplimented")
+	panic("Unimplemented")
 }
 
 func testMsgTrace(handler func(dir string, msg *cb.Envelope) recvr, t *testing.T) {
@@ -102,7 +111,7 @@ func testMsgTrace(handler func(dir string, msg *cb.Envelope) recvr, t *testing.T
 		}
 	}
 
-	assert.Equal(t, utils.MarshalOrPanic(msg), fileData)
+	assert.Equal(t, protoutil.MarshalOrPanic(msg), fileData)
 }
 
 func TestBroadcastMsgTrace(t *testing.T) {
@@ -124,7 +133,7 @@ func TestBroadcastMsgTrace(t *testing.T) {
 func TestDeliverMsgTrace(t *testing.T) {
 	testMsgTrace(func(dir string, msg *cb.Envelope) recvr {
 		return &deliverMsgTracer{
-			AtomicBroadcast_DeliverServer: &mockDeliverSrv{
+			Receiver: &mockDeliverSrv{
 				msg: msg,
 			},
 			msgTracer: msgTracer{
@@ -135,4 +144,12 @@ func TestDeliverMsgTrace(t *testing.T) {
 			},
 		}
 	}, t)
+}
+
+func TestDeliverNoChannel(t *testing.T) {
+	r := &multichannel.Registrar{}
+	ds := &deliverSupport{Registrar: r}
+	chain := ds.GetChain("mychannel")
+	assert.Nil(t, chain)
+	assert.True(t, chain == nil)
 }

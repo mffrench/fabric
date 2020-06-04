@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hyperledger/fabric/bccsp/factory"
 	"github.com/hyperledger/fabric/bccsp/sw"
 	"github.com/stretchr/testify/assert"
 )
@@ -43,14 +44,16 @@ func TestBadConfigOUCert(t *testing.T) {
 	// testdata/badconfigoucert:
 	// the configuration of the OU identifier points to a
 	// certificate that is neither a CA nor an intermediate CA for the msp.
-	conf, err := GetLocalMspConfig("testdata/badconfigoucert", nil, "DEFAULT")
+	conf, err := GetLocalMspConfig("testdata/badconfigoucert", nil, "SampleOrg")
 	assert.NoError(t, err)
 
-	thisMSP, err := newBccspMsp(MSPv1_0)
+	thisMSP, err := newBccspMsp(MSPv1_0, factory.GetDefault())
 	assert.NoError(t, err)
 
 	err = thisMSP.Setup(conf)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Failed adding OU. Certificate [")
+	assert.Contains(t, err.Error(), "] not in root or intermediate certs.")
 }
 
 func TestValidateIntermediateConfigOU(t *testing.T) {
@@ -65,14 +68,16 @@ func TestValidateIntermediateConfigOU(t *testing.T) {
 	err = id.Validate()
 	assert.NoError(t, err)
 
-	conf, err := GetLocalMspConfig("testdata/external", nil, "DEFAULT")
+	conf, err := GetLocalMspConfig("testdata/external", nil, "SampleOrg")
 	assert.NoError(t, err)
 
-	thisMSP, err = newBccspMsp(MSPv1_0)
+	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+	assert.NoError(t, err)
+	thisMSP, err = newBccspMsp(MSPv1_0, cryptoProvider)
 	assert.NoError(t, err)
 	ks, err := sw.NewFileBasedKeyStore(nil, filepath.Join("testdata/external", "keystore"), true)
 	assert.NoError(t, err)
-	csp, err := sw.New(256, "SHA2", ks)
+	csp, err := sw.NewWithParams(256, "SHA2", ks)
 	assert.NoError(t, err)
 	thisMSP.(*bccspmsp).bccsp = csp
 

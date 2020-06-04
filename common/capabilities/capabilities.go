@@ -7,15 +7,12 @@ SPDX-License-Identifier: Apache-2.0
 package capabilities
 
 import (
+	cb "github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric/common/flogging"
-	cb "github.com/hyperledger/fabric/protos/common"
-
 	"github.com/pkg/errors"
 )
 
-const pkgLogID = "common/capabilities"
-
-var logger = flogging.MustGetLogger(pkgLogID)
+var logger = flogging.MustGetLogger("common.capabilities")
 
 // provider is the 'plugin' parameter for registry.
 type provider interface {
@@ -44,6 +41,7 @@ func newRegistry(p provider, capabilities map[string]*cb.Capability) *registry {
 func (r *registry) Supported() error {
 	for capabilityName := range r.capabilities {
 		if r.provider.HasCapability(capabilityName) {
+			logger.Debugf("%s capability %s is supported and is enabled", r.provider.Type(), capabilityName)
 			continue
 		}
 

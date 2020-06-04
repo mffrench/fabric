@@ -7,11 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 package main
 
 import (
+	"context"
 	"testing"
 
-	"github.com/hyperledger/fabric/protos/peer"
+	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/net/context"
 )
 
 type mockEndorserServer struct {
@@ -28,6 +28,6 @@ func TestFilter(t *testing.T) {
 	auth := NewFilter()
 	nextEndorser := &mockEndorserServer{}
 	auth.Init(nextEndorser)
-	auth.ProcessProposal(nil, nil)
+	auth.ProcessProposal(context.Background(), nil)
 	assert.True(t, nextEndorser.invoked)
 }

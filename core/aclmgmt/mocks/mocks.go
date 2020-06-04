@@ -9,8 +9,8 @@ package mocks
 import (
 	"testing"
 
+	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric/core/ledger"
-	"github.com/hyperledger/fabric/protos/common"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -30,7 +30,7 @@ func (m *MockACLProvider) CheckACL(resName string, channelID string, idinfo inte
 	return args.Error(0)
 }
 
-func (m *MockACLProvider) GenerateSimulationResults(txEnvelop *common.Envelope, simulator ledger.TxSimulator) error {
+func (m *MockACLProvider) GenerateSimulationResults(txEnvelop *common.Envelope, simulator ledger.TxSimulator, initializingLedger bool) error {
 	return nil
 }
 
