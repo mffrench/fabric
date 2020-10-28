@@ -34,23 +34,28 @@ type ContainerRuntime struct {
 // Build builds the chaincode if necessary and returns ChaincodeServerInfo if
 // the chaincode is a server
 func (c *ContainerRuntime) Build(ccid string) (*ccintf.ChaincodeServerInfo, error) {
+	chaincodeLogger.Errorf("Build: %s", ccid)
 	buildStatus, ok := c.BuildRegistry.BuildStatus(ccid)
 	if !ok {
+		chaincodeLogger.Errorf("ContainerRouter.Build(%s)", ccid)
 		err := c.ContainerRouter.Build(ccid)
+		chaincodeLogger.Errorf("ContainerRouter.Build(%s) - ret: %v", err)
 		buildStatus.Notify(err)
 	}
 	<-buildStatus.Done()
 
 	if err := buildStatus.Err(); err != nil {
+		chaincodeLogger.Errorf("buildStatus.Err()!=nill - ret: %v", err)
 		return nil, errors.WithMessage(err, "error building image")
 	}
 
+	chaincodeLogger.Errorf("ContainerRouter.ChaincodeServerInfo(%s)", ccid)
 	return c.ContainerRouter.ChaincodeServerInfo(ccid)
 }
 
 // Start launches chaincode in a runtime environment.
 func (c *ContainerRuntime) Start(ccid string, ccinfo *ccintf.PeerConnection) error {
-	chaincodeLogger.Debugf("start container: %s", ccid)
+	chaincodeLogger.Errorf("----------> start container: %s", ccid)
 
 	if err := c.ContainerRouter.Start(ccid, ccinfo); err != nil {
 		return errors.WithMessage(err, "error starting container")

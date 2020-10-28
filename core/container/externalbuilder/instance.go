@@ -78,6 +78,7 @@ type ChaincodeServerUserData struct {
 
 func (c *ChaincodeServerUserData) ChaincodeServerInfo(cryptoDir string) (*ccintf.ChaincodeServerInfo, error) {
 	if c.Address == "" {
+		logger.Errorf("chaincode address not provided")
 		return nil, errors.New("chaincode address not provided")
 	}
 	connInfo := &ccintf.ChaincodeServerInfo{Address: c.Address}
@@ -95,12 +96,15 @@ func (c *ChaincodeServerUserData) ChaincodeServerInfo(cryptoDir string) (*ccintf
 		return connInfo, nil
 	}
 	if c.ClientAuthRequired && c.ClientKey == "" {
+		logger.Errorf("chaincode tls key not provided")
 		return nil, errors.New("chaincode tls key not provided")
 	}
 	if c.ClientAuthRequired && c.ClientCert == "" {
+		logger.Errorf("chaincode tls cert not provided")
 		return nil, errors.New("chaincode tls cert not provided")
 	}
 	if c.RootCert == "" {
+		logger.Errorf("return error: chaincode tls root cert not provided")
 		return nil, errors.New("chaincode tls root cert not provided")
 	}
 
@@ -114,6 +118,7 @@ func (c *ChaincodeServerUserData) ChaincodeServerInfo(cryptoDir string) (*ccintf
 
 	connInfo.ClientConfig.SecOpts.ServerRootCAs = [][]byte{[]byte(c.RootCert)}
 
+	logger.Errorf("return connInfo: %#v", connInfo)
 	return connInfo, nil
 }
 
@@ -127,19 +132,27 @@ func (i *Instance) ChaincodeServerInfo() (*ccintf.ChaincodeServerInfo, error) {
 	_, err := os.Stat(ccinfoPath)
 
 	if os.IsNotExist(err) {
+		logger.Errorf("not exist %s. Reason: %s", ccinfoPath, err.Error())
+		logger.Errorf("-> return ccsrvinfo as nil")
 		return nil, nil
 	}
 
 	if err != nil {
+		logger.Errorf("err != nil : %s", err.Error())
+		logger.Errorf("-> return ccsrvinfo as nil")
 		return nil, errors.WithMessage(err, "connection information not provided")
 	}
 	b, err := ioutil.ReadFile(ccinfoPath)
 	if err != nil {
+		logger.Errorf("Readfile error : %s", err.Error())
+		logger.Errorf("-> return ccsrvinfo as nil")
 		return nil, errors.WithMessagef(err, "could not read '%s' for chaincode info", ccinfoPath)
 	}
 	ccdata := &ChaincodeServerUserData{}
 	err = json.Unmarshal(b, &ccdata)
 	if err != nil {
+		logger.Errorf("unmarshall error %s. Reason: %s", ccinfoPath, err.Error())
+		logger.Errorf("-> return ccsrvinfo as nil")
 		return nil, errors.WithMessagef(err, "malformed chaincode info at '%s'", ccinfoPath)
 	}
 
@@ -147,6 +160,9 @@ func (i *Instance) ChaincodeServerInfo() (*ccintf.ChaincodeServerInfo, error) {
 }
 
 func (i *Instance) Start(peerConnection *ccintf.PeerConnection) error {
+	logger.Errorf("----------------")
+	logger.Errorf("Start")
+	logger.Errorf("----------------")
 	sess, err := i.Builder.Run(i.PackageID, i.BldDir, peerConnection)
 	if err != nil {
 		return errors.WithMessage(err, "could not execute run")

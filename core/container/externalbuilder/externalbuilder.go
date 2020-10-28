@@ -377,6 +377,11 @@ func (b *Builder) Run(ccid, bldDir string, peerConnection *ccintf.PeerConnection
 
 	run := filepath.Join(b.Location, "bin", "run")
 	cmd := b.NewCommand(run, bldDir, launchDir)
+	logger.Errorf("----------------")
+	logger.Errorf("runConfig: %#v", marshaledRC)
+	logger.Errorf("run: %#v", run)
+	logger.Errorf("cmd: %#v", cmd)
+	logger.Errorf("----------------")
 	sess, err := Start(b.Logger, cmd, func(error) { os.RemoveAll(launchDir) })
 	if err != nil {
 		os.RemoveAll(launchDir)

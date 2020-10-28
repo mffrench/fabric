@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package container
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -139,10 +140,15 @@ func (r *Router) Build(ccid string) error {
 }
 
 func (r *Router) ChaincodeServerInfo(ccid string) (*ccintf.ChaincodeServerInfo, error) {
-	return r.getInstance(ccid).ChaincodeServerInfo()
+	instance := r.getInstance(ccid)
+	fmt.Println(fmt.Sprintf("r.Runtime.type: %T", instance))
+	return instance.ChaincodeServerInfo()
 }
 
 func (r *Router) Start(ccid string, peerConnection *ccintf.PeerConnection) error {
+	fmt.Println("----------------")
+	fmt.Println("Start")
+	fmt.Println("----------------")
 	return r.getInstance(ccid).Start(peerConnection)
 }
 

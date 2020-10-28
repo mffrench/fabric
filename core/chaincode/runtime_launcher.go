@@ -72,32 +72,42 @@ func (r *RuntimeLauncher) Launch(ccid string, streamHandler extcc.StreamHandler)
 	var timeoutCh <-chan time.Time
 
 	startTime := time.Now()
+	chaincodeLogger.Warningf("now: %s", startTime.String())
 	launchState, alreadyStarted := r.Registry.Launching(ccid)
+	chaincodeLogger.Warningf("launchState: %#v, isAlreadyStarted: %t", launchState, alreadyStarted)
+	chaincodeLogger.Warningf("r.Runtime.type: %T", r.Runtime)
 	if !alreadyStarted {
 		startFailCh = make(chan error, 1)
 		timeoutCh = time.NewTimer(r.StartupTimeout).C
 
+		chaincodeLogger.Warning("go func....")
 		go func() {
 			// go through the build process to obtain connecion information
+			chaincodeLogger.Warningf("runtime.Build(%s)", ccid)
 			ccservinfo, err := r.Runtime.Build(ccid)
 			if err != nil {
 				startFailCh <- errors.WithMessage(err, "error building chaincode")
 				return
 			}
+			chaincodeLogger.Warningf("got following ccservinfo : %#v", ccservinfo)
 
 			// chaincode server model indicated... proceed to connect to CC
 			if ccservinfo != nil {
+				chaincodeLogger.Warningf("runtime.Stream(%s, %#v, %#v)", ccid, ccservinfo, streamHandler)
 				if err = r.ConnectionHandler.Stream(ccid, ccservinfo, streamHandler); err != nil {
+					chaincodeLogger.Errorf("runtime.Stream return err %s", err.Error())
 					startFailCh <- errors.WithMessagef(err, "connection to %s failed", ccid)
 					return
 				}
 
+				chaincodeLogger.Warningf("connection succesffully done to chaincode : %#v", ccservinfo)
 				launchState.Notify(errors.Errorf("connection to %s terminated", ccid))
 				return
 			}
 
 			// default peer-as-server model... compute connection information for CC callback
 			// and proceed to launch chaincode
+			chaincodeLogger.Warning("runtime.ChaincodeClientInfo(%s)", ccid)
 			ccinfo, err := r.ChaincodeClientInfo(ccid)
 			if err != nil {
 				startFailCh <- errors.WithMessage(err, "could not get connection info")
@@ -107,10 +117,12 @@ func (r *RuntimeLauncher) Launch(ccid string, streamHandler extcc.StreamHandler)
 				startFailCh <- errors.New("could not get connection info")
 				return
 			}
+			chaincodeLogger.Warning("runtime.Start(%s, %#v)", ccid, ccinfo)
 			if err = r.Runtime.Start(ccid, ccinfo); err != nil {
 				startFailCh <- errors.WithMessage(err, "error starting container")
 				return
 			}
+			chaincodeLogger.Warning("runtime.Wait(%s)", ccid)
 			exitCode, err := r.Runtime.Wait(ccid)
 			if err != nil {
 				launchState.Notify(errors.Wrap(err, "failed to wait on container exit"))

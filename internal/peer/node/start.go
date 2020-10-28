@@ -177,6 +177,7 @@ type custodianLauncherAdapter struct {
 }
 
 func (c custodianLauncherAdapter) Launch(ccid string) error {
+	logger.Warningf("Launching chaincode '%s'", ccid)
 	return c.launcher.Launch(ccid, c.streamHandler)
 }
 

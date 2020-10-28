@@ -54,6 +54,7 @@ func (cc *ChaincodeCustodian) NotifyInstalled(chaincodeID string) {
 	cc.choreQueue = append(cc.choreQueue, &chaincodeChore{
 		chaincodeID: chaincodeID,
 	})
+	logger.Warningf("chaincode %s is installed !", chaincodeID)
 	cc.cond.Signal()
 }
 
@@ -64,6 +65,7 @@ func (cc *ChaincodeCustodian) NotifyInstalledAndRunnable(chaincodeID string) {
 		chaincodeID: chaincodeID,
 		runnable:    true,
 	})
+	logger.Warningf("chaincode %s is installed and runnable !", chaincodeID)
 	cc.cond.Signal()
 }
 
@@ -74,6 +76,7 @@ func (cc *ChaincodeCustodian) NotifyStoppable(chaincodeID string) {
 		chaincodeID: chaincodeID,
 		stoppable:   true,
 	})
+	logger.Warningf("chaincode %s is installed and stoppable !", chaincodeID)
 	cc.cond.Signal()
 }
 
@@ -101,7 +104,10 @@ func (cc *ChaincodeCustodian) Work(buildRegistry *container.BuildRegistry, build
 		if chore.runnable {
 			if err := launcher.Launch(chore.chaincodeID); err != nil {
 				logger.Warningf("could not launch chaincode '%s': %s", chore.chaincodeID, err)
+			} else {
+				logger.Warningf("-----> chaincode %s launched successfully !", chore.chaincodeID, err)
 			}
+
 			continue
 		}
 

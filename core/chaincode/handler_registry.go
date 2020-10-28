@@ -82,6 +82,7 @@ func (r *HandlerRegistry) Launching(ccid string) (*LaunchState, bool) {
 	if _, ok := r.handlers[ccid]; ok {
 		launchState := NewLaunchState()
 		launchState.Notify(nil)
+		chaincodeLogger.Warning("already launched : true !!!!")
 		return launchState, true
 	}
 
@@ -141,6 +142,7 @@ func (r *HandlerRegistry) Register(h *Handler) error {
 		return errors.Errorf("peer will not accept external chaincode connection %s (except in dev mode)", h.chaincodeID)
 	}
 
+	chaincodeLogger.Warning("Register handler for %s", h.chaincodeID)
 	r.handlers[h.chaincodeID] = h
 
 	chaincodeLogger.Debugf("registered handler complete for chaincode %s", h.chaincodeID)
