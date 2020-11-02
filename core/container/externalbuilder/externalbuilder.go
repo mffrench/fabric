@@ -301,9 +301,14 @@ func (b *Builder) Detect(buildContext *BuildContext) bool {
 
 // Build runs the `build` script.
 func (b *Builder) Build(buildContext *BuildContext) error {
+	logger.Errorf("#__# Running the Build script")
+	logger.Errorf("#__# build context location : %s", b.Location)
+
 	build := filepath.Join(b.Location, "bin", "build")
+	logger.Errorf("#__# build script filepath: %s", build)
 	cmd := b.NewCommand(build, buildContext.SourceDir, buildContext.MetadataDir, buildContext.BldDir)
 
+	logger.Errorf("#__# Running Build script with the following command: %v", cmd)
 	err := b.runCommand(cmd)
 	if err != nil {
 		return errors.Wrapf(err, "external builder '%s' failed", b.Name)
@@ -314,7 +319,13 @@ func (b *Builder) Build(buildContext *BuildContext) error {
 
 // Release runs the `release` script.
 func (b *Builder) Release(buildContext *BuildContext) error {
+	logger.Errorf("#__# Running the release script")
+	logger.Errorf("#__# Release context location : %s", b.Location)
+
 	release := filepath.Join(b.Location, "bin", "release")
+	
+	logger.Errorf("#__# Release script filepath: %s", release)
+
 
 	_, err := exec.LookPath(release)
 	if err != nil {
@@ -323,6 +334,7 @@ func (b *Builder) Release(buildContext *BuildContext) error {
 	}
 
 	cmd := b.NewCommand(release, buildContext.BldDir, buildContext.ReleaseDir)
+	logger.Errorf("#__# Running Release script with the following command: %v", cmd)
 	err = b.runCommand(cmd)
 	if err != nil {
 		return errors.Wrapf(err, "builder '%s' release failed", b.Name)
@@ -404,10 +416,13 @@ func (b *Builder) runCommand(cmd *exec.Cmd) error {
 // environment down to the environment variables specified in the external
 // builder's PropagateEnvironment and the DefaultPropagateEnvironment.
 func (b *Builder) NewCommand(name string, args ...string) *exec.Cmd {
+	logger.Errorf("#__# Executing command: %s with args %v", name, args)
 	cmd := exec.Command(name, args...)
 	propagationList := appendDefaultPropagateEnvironment(b.PropagateEnvironment)
+	logger.Errorf("#__# attempt to propagate following environment variables: %v", propagationList)
 	for _, key := range propagationList {
 		if val, ok := os.LookupEnv(key); ok {
+			logger.Errorf("#__# propagating variable %s with value %s", key, val)
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, val))
 		}
 	}
